@@ -17,15 +17,15 @@
 
 <p align="center">
   The only AI memory system built on real cognitive science.<br/>
-  FSRS-6 spaced repetition. Retroactive importance. Context-dependent recall.<br/>
-  All local. All free.
+  FSRS-6 spaced repetition. Prediction Error Gating. Context-dependent recall.<br/>
+  29 MCP tools. 100% local. 100% free.
 </p>
 
 <p align="center">
-  <a href="#installation">Installation</a> |
-  <a href="#quick-start">Quick Start</a> |
-  <a href="#features">Features</a> |
-  <a href="#the-science">The Science</a>
+  <a href="#quick-start-2-minutes">Quick Start</a> |
+  <a href="#all-26-tools">All 26 Tools</a> |
+  <a href="#the-science">The Science</a> |
+  <a href="#comparison">Comparison</a>
 </p>
 
 <p align="center">
@@ -36,53 +36,34 @@
 
 ---
 
-## Why Vestige?
+## Quick Start (2 minutes)
 
-**The only AI memory built on real cognitive science.**
-
-| Feature | What It Does |
-|---------|--------------|
-| **FSRS-6 Spaced Repetition** | Full 21-parameter algorithm - nobody else in AI memory has this |
-| **Retroactive Importance** | Mark something important, past 9 hours of memories strengthen too |
-| **Context-Dependent Recall** | Retrieval matches encoding context (Tulving 1973) |
-| **Memory States** | See if memories are Active, Dormant, Silent, or Unavailable |
-| **100% Local** | No API keys, no cloud, your data stays yours |
-
-> Other tools store memories. Vestige understands how memory actually works.
-
----
-
-## Installation
-
-### From Source (Recommended)
+### Step 1: Build & Install
 
 ```bash
 git clone https://github.com/samvallad33/vestige
 cd vestige
-cargo build --release --package vestige-mcp
+cargo build --release
+sudo cp target/release/vestige-mcp /usr/local/bin/
 ```
 
-The binary will be at `./target/release/vestige-mcp`
+That's it. Vestige is now globally available.
 
-### Homebrew (macOS/Linux)
+### Step 2: Add to Claude Code
 
-```bash
-brew install samvallad33/tap/vestige
+Add to your `~/.claude/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "vestige": {
+      "command": "vestige-mcp"
+    }
+  }
+}
 ```
 
----
-
-## Quick Start
-
-### 1. Build Vestige
-
-```bash
-cargo build --release --package vestige-mcp
-```
-
-### 2. Configure Claude Desktop
-
-Add Vestige to your Claude Desktop configuration:
+### Step 3: Add to Claude Desktop (Optional)
 
 **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
 
@@ -92,7 +73,7 @@ Add Vestige to your Claude Desktop configuration:
 {
   "mcpServers": {
     "vestige": {
-      "command": "/path/to/vestige-mcp",
+      "command": "vestige-mcp",
       "args": [],
       "env": {
         "VESTIGE_DATA_DIR": "~/.vestige"
@@ -102,101 +83,123 @@ Add Vestige to your Claude Desktop configuration:
 }
 ```
 
-### 3. Restart Claude Desktop
+### Step 4: Restart & Verify
 
-Claude will now have access to persistent, biologically-inspired memory.
+Restart Claude Code/Desktop. You should see 29 Vestige tools available.
 
 ---
 
-## Features
+## Why Vestige?
 
-### Core
+| Feature | What It Does | Who Else Has It |
+|---------|--------------|-----------------|
+| **Prediction Error Gating** | Auto-decides create/update/supersede based on similarity | Nobody |
+| **FSRS-6 Spaced Repetition** | Full 21-parameter algorithm trained on millions of reviews | Nobody in AI memory |
+| **Retroactive Importance** | Mark something important, past 9 hours of memories strengthen | Nobody |
+| **Context-Dependent Recall** | Retrieval matches encoding context (Tulving 1973) | Nobody |
+| **Memory States** | Active/Dormant/Silent/Unavailable accessibility model | Nobody |
+| **100% Local** | No API keys, no cloud, no data leaves your machine | Rare |
 
-| Feature | Description |
-|---------|-------------|
-| **FSRS-6 Algorithm** | Full 21-parameter spaced repetition (20-30% better than SM-2) |
-| **Dual-Strength Memory** | Bjork & Bjork (1992) - Storage + Retrieval strength model |
-| **Hybrid Search** | BM25 + Semantic + RRF fusion for best retrieval |
-| **Local Embeddings** | 768-dim BGE embeddings, no API required |
-| **SQLite + FTS5** | Fast full-text search with persistence |
+> Other tools store memories. Vestige understands how memory actually works.
 
-### Neuroscience-Inspired
+---
 
-| Feature | Description |
-|---------|-------------|
-| **Synaptic Tagging** | Retroactive importance (Frey & Morris 1997) |
-| **Memory States** | Active/Dormant/Silent/Unavailable continuum |
-| **Context-Dependent Memory** | Encoding specificity principle (Tulving 1973) |
-| **Prospective Memory** | Future intentions with time/context triggers |
-| **Basic Consolidation** | Decay + prune cycles |
+## All 29 Tools
 
-### MCP Tools (26 Total)
+### Core Memory (8 tools)
 
-**Core Memory (8):**
-- `ingest` - Store new memories
-- `smart_ingest` - Prediction Error Gating (auto-decides create/update/supersede)
-- `recall` - Semantic retrieval
-- `semantic_search` - Pure embedding search
-- `hybrid_search` - BM25 + semantic fusion
-- `get_knowledge` - Get memory by ID
-- `delete_knowledge` - Remove memory
-- `mark_reviewed` - FSRS review (1-4 rating)
+| Tool | Description |
+|------|-------------|
+| `ingest` | Store a new memory |
+| `smart_ingest` | **Prediction Error Gating** - auto-decides CREATE/UPDATE/SUPERSEDE based on semantic similarity to existing memories |
+| `recall` | Semantic search with keyword matching |
+| `semantic_search` | Pure embedding-based similarity search |
+| `hybrid_search` | BM25 + semantic + RRF fusion (best retrieval quality) |
+| `get_knowledge` | Retrieve a specific memory by ID |
+| `delete_knowledge` | Remove a memory |
+| `mark_reviewed` | FSRS review with 1-4 rating (strengthens memory) |
 
-**Stats & Maintenance (3):**
-- `get_stats` - Memory statistics
-- `health_check` - System health
-- `run_consolidation` - Trigger consolidation
+### Feedback System (3 tools)
 
-**Codebase Memory (3):**
-- `remember_pattern` - Store code patterns
-- `remember_decision` - Store architectural decisions
-- `get_codebase_context` - Retrieve project context
+| Tool | Description |
+|------|-------------|
+| `promote_memory` | Thumbs up - memory led to good outcome, increase retrieval strength |
+| `demote_memory` | Thumbs down - memory was wrong/unhelpful, decrease retrieval strength |
+| `request_feedback` | Ask user if a memory was helpful after using it |
 
-**Prospective Memory (5):**
-- `set_intention` - Remember to do something
-- `check_intentions` - Check triggered intentions
-- `complete_intention` - Mark intention done
-- `snooze_intention` - Delay intention
-- `list_intentions` - List all intentions
+### Stats & Maintenance (3 tools)
 
-**Neuroscience (7):**
-- `get_memory_state` - Check cognitive state
-- `list_by_state` - Filter by state
-- `state_stats` - State distribution
-- `trigger_importance` - Retroactive strengthening
-- `find_tagged` - Find strengthened memories
-- `tagging_stats` - Tagging system statistics
-- `match_context` - Context-dependent retrieval
+| Tool | Description |
+|------|-------------|
+| `get_stats` | Memory system statistics (total nodes, retention, embeddings) |
+| `health_check` | System health status |
+| `run_consolidation` | Trigger memory consolidation cycle (decay, promote, embed) |
+
+### Codebase Memory (3 tools)
+
+| Tool | Description |
+|------|-------------|
+| `remember_pattern` | Store a code pattern or convention |
+| `remember_decision` | Store an architectural decision with rationale |
+| `get_codebase_context` | Retrieve patterns and decisions for current project |
+
+### Prospective Memory (5 tools)
+
+| Tool | Description |
+|------|-------------|
+| `set_intention` | Remember to do something in the future (time/context/event triggers) |
+| `check_intentions` | Check if any intentions should trigger based on current context |
+| `complete_intention` | Mark an intention as fulfilled |
+| `snooze_intention` | Delay an intention |
+| `list_intentions` | List all active intentions |
+
+### Neuroscience (7 tools)
+
+| Tool | Description |
+|------|-------------|
+| `get_memory_state` | Check cognitive state (Active/Dormant/Silent/Unavailable) |
+| `list_by_state` | List memories filtered by cognitive state |
+| `state_stats` | Distribution of memories across states |
+| `trigger_importance` | Retroactively strengthen recent memories (Synaptic Tagging) |
+| `find_tagged` | Find memories with high retention (tagged/strengthened) |
+| `tagging_stats` | Synaptic tagging statistics |
+| `match_context` | Context-dependent retrieval (Tulving's Encoding Specificity) |
+
+---
+
+## Prediction Error Gating
+
+The `smart_ingest` tool implements neuroscience-inspired memory gating:
+
+```
+New memory: "The API uses JWT tokens"
+                    ↓
+         [Prediction Error Gate]
+                    ↓
+┌────────────────────────────────────────────┐
+│ Found similar: "API uses OAuth"            │
+│ Similarity: 0.82 | Prediction Error: 0.18  │
+│                                            │
+│ Decision: UPDATE existing memory           │
+│ (Not creating duplicate)                   │
+└────────────────────────────────────────────┘
+```
+
+**Thresholds:**
+- `>0.92` similarity → **Reinforce** (near-identical, just strengthen)
+- `>0.75` similarity → **Update/Merge** (related, combine information)
+- `<0.75` similarity → **Create** (sufficiently different, new memory)
+- Demoted memory + similar new → **Supersede** (replace bad with good)
+
+This solves the "bad vs good similar memory" problem automatically.
 
 ---
 
 ## The Science
 
-### Ebbinghaus Forgetting Curve (1885)
-
-Memory retention decays exponentially over time:
-
-```
-R = e^(-t/S)
-```
-
-Where:
-- **R** = Retrievability (probability of recall)
-- **t** = Time since last review
-- **S** = Stability (strength of memory)
-
-### Bjork & Bjork Dual-Strength Model (1992)
-
-Memories have two independent strengths:
-
-- **Storage Strength**: How well encoded (never decreases)
-- **Retrieval Strength**: How accessible now (decays with time)
-
-Key insight: difficult retrievals increase storage strength more than easy ones.
-
 ### FSRS-6 Algorithm (2024)
 
-Free Spaced Repetition Scheduler version 6. Trained on millions of reviews:
+Free Spaced Repetition Scheduler version 6. Trained on 700M+ reviews:
 
 ```rust
 const FSRS_WEIGHTS: [f64; 21] = [
@@ -207,36 +210,64 @@ const FSRS_WEIGHTS: [f64; 21] = [
 ];
 ```
 
+20-30% better retention than SM-2 (what Anki uses).
+
+### Bjork & Bjork Dual-Strength Model (1992)
+
+Memories have two independent strengths:
+
+- **Storage Strength**: How well encoded (never decreases)
+- **Retrieval Strength**: How accessible now (decays with time)
+
+Key insight: difficult retrievals increase storage strength more than easy ones.
+
 ### Synaptic Tagging & Capture (Frey & Morris 1997)
 
-When something important happens, it can retroactively strengthen memories from the past several hours. Vestige implements this with a 9-hour capture window.
+When something important happens, it retroactively strengthens memories from the past several hours. Vestige implements this with a 9-hour capture window.
 
 ### Encoding Specificity Principle (Tulving 1973)
 
-Memory retrieval is most effective when the retrieval context matches the encoding context. Vestige scores memories by context match.
+Memory retrieval is most effective when the retrieval context matches the encoding context. The `match_context` tool scores memories by context similarity.
+
+### Ebbinghaus Forgetting Curve (1885)
+
+Memory retention decays exponentially: `R = e^(-t/S)`
+
+Where R = retrievability, t = time, S = stability.
 
 ---
 
 ## Comparison
 
 | Feature | Vestige | Mem0 | Zep | Letta |
-|---------|--------|------|-----|-------|
+|---------|---------|------|-----|-------|
+| **Tools** | 29 | ~5 | ~8 | ~10 |
+| Prediction Error Gating | Yes | No | No | No |
 | FSRS-6 spaced repetition | Yes | No | No | No |
 | Dual-strength memory | Yes | No | No | No |
 | Retroactive importance | Yes | No | No | No |
 | Memory states | Yes | No | No | No |
+| Context-dependent recall | Yes | No | No | No |
 | Local embeddings | Yes | No | No | No |
 | 100% local | Yes | No | No | No |
 | Free & open source | Yes | Freemium | Freemium | Yes |
 
 ---
 
-## Environment Variables
+## Configuration
+
+### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `VESTIGE_DATA_DIR` | Data storage directory | `~/.vestige` |
-| `VESTIGE_LOG_LEVEL` | Log verbosity | `info` |
+| `VESTIGE_LOG_LEVEL` | Log verbosity (`error`, `warn`, `info`, `debug`, `trace`) | `info` |
+
+### Data Location
+
+All data is stored in `~/.vestige/` by default:
+- `vestige.db` - SQLite database with FTS5
+- `embeddings/` - Local embedding cache
 
 ---
 
@@ -251,7 +282,7 @@ Memory retrieval is most effective when the retrieval context matches the encodi
 ```bash
 git clone https://github.com/samvallad33/vestige
 cd vestige
-cargo build --release --package vestige-mcp
+cargo build --release
 ```
 
 ### Testing
@@ -260,11 +291,51 @@ cargo build --release --package vestige-mcp
 cargo test --workspace
 ```
 
+### Installing Locally
+
+```bash
+sudo cp target/release/vestige-mcp /usr/local/bin/
+```
+
+---
+
+## Updating
+
+```bash
+cd vestige
+git pull
+cargo build --release
+sudo cp target/release/vestige-mcp /usr/local/bin/
+```
+
+Restart Claude Code/Desktop to pick up changes.
+
+---
+
+## Troubleshooting
+
+### "vestige-mcp: command not found"
+
+Make sure you copied the binary:
+```bash
+sudo cp target/release/vestige-mcp /usr/local/bin/
+```
+
+### "No tools showing in Claude"
+
+1. Check your config file syntax (valid JSON)
+2. Restart Claude Code/Desktop completely
+3. Check logs: `VESTIGE_LOG_LEVEL=debug vestige-mcp`
+
+### "Embeddings not generating"
+
+First run downloads the embedding model (~100MB). Check your internet connection and wait for download to complete.
+
 ---
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or submit a pull request.
+Contributions welcome! Please open an issue or submit a pull request.
 
 ---
 
