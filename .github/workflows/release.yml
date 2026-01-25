@@ -40,19 +40,19 @@ jobs:
 
       - name: Build MCP Server
         run: |
-          cargo build --release --package engram-mcp --target ${{ matrix.target }}
+          cargo build --release --package vestige-mcp --target ${{ matrix.target }}
 
       - name: Package
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/engram-mcp dist/
-          cd dist && tar czf engram-mcp-${{ matrix.target }}.tar.gz engram-mcp
+          cp target/${{ matrix.target }}/release/vestige-mcp dist/
+          cd dist && tar czf vestige-mcp-${{ matrix.target }}.tar.gz vestige-mcp
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: engram-mcp-${{ matrix.target }}
-          path: dist/engram-mcp-${{ matrix.target }}.tar.gz
+          name: vestige-mcp-${{ matrix.target }}
+          path: dist/vestige-mcp-${{ matrix.target }}.tar.gz
 
   release:
     needs: build
