@@ -124,7 +124,7 @@ Model cache location:
 
 ### Data Storage & Backup
 
-All memories are stored locally in SQLite:
+All memories are stored in a **single local SQLite file**:
 
 | Platform | Database Location |
 |----------|------------------|
@@ -132,9 +132,30 @@ All memories are stored locally in SQLite:
 | Linux | `~/.local/share/vestige/core/vestige.db` |
 | Windows | `%APPDATA%\vestige\core\vestige.db` |
 
-**There is no cloud sync or automatic backup.** Your memories live on your machine.
+**⚠️ There is no cloud sync, no redundancy, and no automatic backup.**
 
-To back up manually:
+If that file gets:
+- Accidentally deleted
+- Corrupted (disk failure, power loss mid-write)
+- Lost (laptop stolen, hard drive dies)
+
+...the memories are **gone**.
+
+---
+
+**For AI memory = Totally Fine**
+
+If you lose your Claude memories, you just start over. Annoying but not catastrophic.
+
+**For critical data = Not Fine**
+
+Don't store medical records, financial transactions, or legal documents in Vestige.
+
+---
+
+**Backup Options:**
+
+*Manual (one-time):*
 ```bash
 # macOS
 cp ~/Library/Application\ Support/com.vestige.core/vestige.db ~/vestige-backup.db
@@ -143,7 +164,15 @@ cp ~/Library/Application\ Support/com.vestige.core/vestige.db ~/vestige-backup.d
 cp ~/.local/share/vestige/core/vestige.db ~/vestige-backup.db
 ```
 
-> For most users, losing memories isn't catastrophic—you just start fresh. But if you've built valuable context, periodic backups are recommended.
+*Automated (cron job):*
+```bash
+# Add to crontab - backs up every hour
+0 * * * * cp ~/Library/Application\ Support/com.vestige.core/vestige.db ~/.vestige-backups/vestige-$(date +\%Y\%m\%d-\%H\%M).db
+```
+
+*Or just use **Time Machine** (macOS) / **Windows Backup** / **rsync** — they'll catch the file automatically.*
+
+> For personal use with Claude? Don't overthink it. The memories aren't that precious.
 
 ---
 
