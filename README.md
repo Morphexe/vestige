@@ -1200,20 +1200,24 @@ The only exception: If you delete the Hugging Face cache, the model will re-down
 </details>
 
 <details>
-<summary><b>"How does this compare to Claude's native memory?"</b></summary>
+<summary><b>"How does this compare to Claude's native memory? Do I need to switch it off?"</b></summary>
 
-Claude's built-in memory (if/when released) will likely:
-- Be cloud-based (Anthropic servers)
-- Work across all clients
-- Be managed by Anthropic
+**No, you don't need to switch off Claude's native memory.** They're completely independent systems:
 
-Vestige:
-- 100% local (your machine, your data)
-- Cognitive science-based decay and retrieval
-- Open source and hackable
-- Works now
+| Aspect | Claude's Native Memory | Vestige |
+|--------|------------------------|---------|
+| Storage | Anthropic's servers | Your local machine |
+| Control | Managed by Anthropic | You own everything |
+| Decay | Unknown/proprietary | FSRS-6 cognitive science |
+| Privacy | Cloud-based | 100% offline after setup |
 
-They're complementary—Vestige gives you control and scientific sophistication; native memory gives you convenience.
+**They can run simultaneously.** Claude's native memory handles general conversation context, while Vestige gives you:
+- Explicit control over what gets remembered
+- Scientific forgetting curves
+- Codebase-specific patterns and decisions
+- Local-first privacy
+
+Think of it like this: Claude's memory is automatic and general; Vestige is intentional and specialized. Many users run both.
 </details>
 
 <details>
