@@ -1,7 +1,7 @@
 #!/bin/bash
 # Vestige Demo Script - Shows real-time memory operations
 
-VESTIGE="/Users/entity002/Developer/vestige/target/release/vestige-mcp"
+VESTIGE="${VESTIGE:-$(dirname "$0")/target/release/vestige-mcp}"
 
 # Colors for pretty output
 GREEN='\033[0;32m'

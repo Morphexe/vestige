@@ -249,17 +249,20 @@ This prevents duplicate memories and keeps your knowledge base clean.
 
 ### FSRS-6 Spaced Repetition
 
-Memories decay over time following the **Ebbinghaus forgetting curve**:
+Memories decay over time following a **power law forgetting curve** (not exponential):
 
 ```
-Retention = e^(-time/stability)
+R(t, S) = (1 + factor × t / S)^(-w₂₀)
+
+where factor = 0.9^(-1/w₂₀) - 1
 ```
 
-- Memories you access stay strong
-- Memories you ignore fade naturally
-- No manual cleanup required
+- `R` = retrievability (probability of recall)
+- `t` = time since last review
+- `S` = stability (time for R to drop to 90%)
+- `w₂₀` = personalized decay parameter (0.1-0.8)
 
-FSRS-6 uses 21 parameters optimized on millions of Anki reviews—30% more efficient than SM-2.
+FSRS-6 uses 21 parameters optimized on 700M+ Anki reviews—[30% more efficient than SM-2](https://github.com/open-spaced-repetition/srs-benchmark).
 
 ### Memory States
 
@@ -276,17 +279,17 @@ Based on accessibility, memories exist in four states:
 
 ## The Science
 
-Vestige implements concepts from memory research:
+Vestige is **inspired by** memory research. Here's what's actually implemented:
 
-| Feature | Inspired By | Reference |
-|---------|-------------|-----------|
-| Spaced repetition | FSRS-6 algorithm | [Piotr Wozniak, 2022](https://github.com/open-spaced-repetition/fsrs4anki) |
-| Storage vs Retrieval strength | Bjork's New Theory of Disuse | [Bjork & Bjork, 1992](https://psycnet.apa.org/record/1992-97586-004) |
-| Retroactive importance | Synaptic Tagging & Capture | [Frey & Morris, 1997](https://www.nature.com/articles/385533a0) |
-| Context-dependent retrieval | Encoding Specificity Principle | [Tulving & Thomson, 1973](https://psycnet.apa.org/record/1973-31800-001) |
-| Forgetting curve | Ebbinghaus decay function | [Ebbinghaus, 1885](https://en.wikipedia.org/wiki/Forgetting_curve) |
+| Feature | Research Basis | Implementation |
+|---------|----------------|----------------|
+| **Spaced repetition** | [FSRS-6](https://github.com/open-spaced-repetition/fsrs4anki) | ✅ Fully implemented (21-parameter power law model) |
+| **Context-dependent retrieval** | [Tulving & Thomson, 1973](https://psycnet.apa.org/record/1973-31800-001) | ✅ Fully implemented (temporal, topical, emotional context matching) |
+| **Dual-strength model** | [Bjork & Bjork, 1992](https://bjorklab.psych.ucla.edu/wp-content/uploads/sites/13/2016/07/RBjork_EBjork_1992.pdf) | ⚡ Simplified (storage + retrieval strength tracked separately) |
+| **Retroactive importance** | [Frey & Morris, 1997](https://www.nature.com/articles/385533a0) | ⚡ Inspired (temporal window capture, not actual synaptic biochemistry) |
+| **Memory states** | Multi-store memory models | ⚡ Heuristic (accessibility-based state machine) |
 
-> **Note**: These are *simplified models inspired by* cognitive science research, designed to be practical for AI memory management. They are not literal implementations of neural biochemistry.
+> **Transparency**: The ✅ features closely follow published algorithms. The ⚡ features are engineering heuristics *inspired by* the research—useful approximations, not literal neuroscience. We believe in honest marketing.
 
 ---
 
