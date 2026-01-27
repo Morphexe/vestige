@@ -73,16 +73,25 @@ impl McpServer {
         &mut self,
         params: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, JsonRpcError> {
-        let _request: InitializeRequest = match params {
+        let request: InitializeRequest = match params {
             Some(p) => serde_json::from_value(p).map_err(|e| JsonRpcError::invalid_params(&e.to_string()))?,
             None => InitializeRequest::default(),
         };
 
+        // Version negotiation: use client's version if older than server's
+        // Claude Desktop rejects servers with newer protocol versions
+        let negotiated_version = if request.protocol_version < MCP_VERSION.to_string() {
+            info!("Client requested older protocol version {}, using it", request.protocol_version);
+            request.protocol_version.clone()
+        } else {
+            MCP_VERSION.to_string()
+        };
+
         self.initialized = true;
-        info!("MCP session initialized");
+        info!("MCP session initialized with protocol version {}", negotiated_version);
 
         let result = InitializeResult {
-            protocol_version: MCP_VERSION.to_string(),
+            protocol_version: negotiated_version,
             server_info: ServerInfo {
                 name: "vestige".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
