@@ -1,6 +1,6 @@
 [package]
 name = "vestige-mcp"
-version = "1.1.1"
+version = "1.1.2"
 edition = "2021"
 description = "Cognitive memory MCP server for Claude - FSRS-6, spreading activation, synaptic tagging, and 130 years of memory research"
 authors = ["samvallad33"]
