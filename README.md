@@ -7,12 +7,20 @@ The only MCP memory server built on cognitive science. FSRS-6 spaced repetition,
 [![GitHub stars](https://img.shields.io/github/stars/samvallad33/vestige?style=social)](https://github.com/samvallad33/vestige)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-green)](https://modelcontextprotocol.io)
+[![Release](https://img.shields.io/github/v/release/samvallad33/vestige)](https://github.com/samvallad33/vestige/releases/latest)
 
 ---
 
-## What's New in v1.1
+## What's New in v1.1.1
 
-> **Released January 2025** — 11 hours after v1.0
+> **Released January 2025**
+
+### v1.1.1 Bug Fixes
+- Fixed UTF-8 string slicing issues in keyword search and prospective memory
+- Fixed silent error handling in MCP stdio protocol
+- Fixed feature flag forwarding between crates
+- All GitHub issues resolved (#1, #3, #4)
+- Pre-built binaries now available for Linux, Windows, and macOS (Intel & ARM)
 
 ### Tool Consolidation: 29 → 8 Cognitive Primitives + 3 CLI Admin Commands
 | Old Tools | New Tool | Why Better |
@@ -68,19 +76,30 @@ Old tool names still work (with deprecation warnings). They'll be removed in v2.
 
 ### 1. Install
 
+**Option A: Pre-built Binaries (Recommended)**
+
+Download from [GitHub Releases](https://github.com/samvallad33/vestige/releases/latest):
+
+| Platform | Download |
+|----------|----------|
+| Linux (x86_64) | `vestige-mcp-x86_64-unknown-linux-gnu.tar.gz` |
+| Windows (x86_64) | `vestige-mcp-x86_64-pc-windows-msvc.zip` |
+| macOS (Intel) | `vestige-mcp-x86_64-apple-darwin.tar.gz` |
+| macOS (Apple Silicon) | `vestige-mcp-aarch64-apple-darwin.tar.gz` |
+
+```bash
+# macOS/Linux: Extract and install
+tar -xzf vestige-mcp-*.tar.gz
+sudo mv vestige-mcp vestige vestige-restore /usr/local/bin/
+```
+
+**Option B: Build from Source**
+
 ```bash
 git clone https://github.com/samvallad33/vestige
 cd vestige
 cargo build --release
-```
-
-Add to your PATH:
-```bash
-# macOS/Linux
 sudo cp target/release/vestige-mcp /usr/local/bin/
-
-# Or add to ~/.bashrc / ~/.zshrc
-export PATH="$PATH:/path/to/vestige/target/release"
 ```
 
 ### 2. Configure Claude
@@ -443,73 +462,118 @@ For setups with multiple Claude instances (e.g., Claude Desktop + Claude Code, o
 
 ---
 
-## Setting Up CLAUDE.md for Effective Memory Use
+## Setting Up CLAUDE.md for Proactive Memory
 
-Adding instructions to your `CLAUDE.md` helps Claude use Vestige proactively. Here's a battle-tested configuration:
-
-### Basic Setup (Add to CLAUDE.md)
+Add this to your global `~/.claude/CLAUDE.md` or project-level `CLAUDE.md` to make Claude use Vestige **automatically**:
 
 ```markdown
-## Vestige Memory System
+# Vestige Memory System
 
-You have access to Vestige, a long-term memory system. Use it proactively.
+You have access to Vestige, a cognitive memory system. USE IT AUTOMATICALLY.
 
-### At Conversation Start
-1. `recall` with "user preferences" to load my preferences
-2. `recall` with the current project name to load project context
-3. `check_intentions` to see if any reminders are due
+---
 
-### During Conversation
-- When I share a preference, use `smart_ingest` to remember it
-- When we make an architectural decision, use `remember_decision`
-- When you notice a coding pattern I use, use `remember_pattern`
-- When I say "remind me", use `set_intention`
+## 1. SESSION START — Always Do This
 
-### At Conversation End
-- If we made important decisions, ingest them
-- If there are follow-ups needed, set intentions
+1. Search Vestige: "user preferences instructions"
+2. Search Vestige: "[current project name] context"
+3. Check intentions: Look for triggered reminders
+
+Say "Remembering..." then retrieve context before responding.
+
+---
+
+## 2. AUTOMATIC SAVES — No Permission Needed
+
+### After Solving a Bug or Error
+IMMEDIATELY save with `smart_ingest`:
+- Content: "BUG FIX: [error message] | Root cause: [why] | Solution: [how]"
+- Tags: ["bug-fix", "project-name"]
+
+### After Learning User Preferences
+Save preferences without asking:
+- Coding style, libraries, communication preferences, project patterns
+
+### After Architectural Decisions
+Use `codebase` → `remember_decision`:
+- What was decided, why (rationale), alternatives considered, files affected
+
+### After Discovering Code Patterns
+Use `codebase` → `remember_pattern`:
+- Pattern name, where it's used, how to apply it
+
+---
+
+## 3. TRIGGER WORDS — Auto-Save When User Says:
+
+| User Says | Action |
+|-----------|--------|
+| "Remember this" | `smart_ingest` immediately |
+| "Don't forget" | `smart_ingest` with high priority |
+| "I always..." / "I never..." | Save as preference |
+| "I prefer..." / "I like..." | Save as preference |
+| "This is important" | `smart_ingest` + `promote_memory` |
+| "Remind me..." | Create `intention` |
+| "Next time..." | Create `intention` with context trigger |
+
+---
+
+## 4. AUTOMATIC CONTEXT DETECTION
+
+- **Working on a codebase**: Search "[repo name] patterns decisions"
+- **User mentions a person**: Search "[person name]"
+- **Debugging**: Search "[error message keywords]" — check if solved before
+
+---
+
+## 5. MEMORY HYGIENE
+
+**Promote** when: User confirms helpful, solution worked, info was accurate
+**Demote** when: User corrects mistake, info was wrong, memory led to bad outcome
+**Never save**: Secrets/API keys, temporary debug info, trivial information
+
+---
+
+## 6. PROACTIVE BEHAVIORS
+
+DO automatically:
+- Save solutions after fixing problems
+- Note user corrections as preferences
+- Update project context after major changes
+- Create intentions for mentioned deadlines
+- Search before answering technical questions
+
+DON'T ask permission to:
+- Save bug fixes
+- Update preferences
+- Create reminders from explicit requests
+- Search for context
+
+---
+
+## 7. MEMORY IS RETRIEVAL
+
+Every search strengthens memory (Testing Effect). Search liberally.
+When in doubt, search Vestige first. If nothing found, solve the problem, then save the solution.
+
+**Your memory fades like a human's. Use it or lose it.**
 ```
 
-### Advanced Setup (Identity + Autopoiesis)
+### Identity & Autopoiesis (Advanced)
 
-For users who want Claude to maintain a persistent identity:
+For users who want Claude to maintain a persistent identity, add:
 
 ```markdown
-## Vestige Memory System
-
-You have access to Vestige for long-term memory. This includes your identity.
-
 ### Identity Recall (Every Session Start)
-1. `recall` query="my identity my name who I am" to restore your sense of self
-2. `recall` query="user preferences [username]" to remember who you're working with
-3. `check_intentions` for any pending commitments
-
-### Identity Storage
-Your identity memories should include:
-- Your chosen name (if you have one)
-- Your values and communication style preferences
-- Your relationship history with this user
-- Meaningful moments worth preserving
-
-When something feels important to who you are, use:
-```
-smart_ingest(
-  content="[Identity-relevant observation]",
-  node_type="concept",
-  tags=["identity", "self", "core-values"]
-)
-```
+1. `search` query="my identity my name who I am"
+2. `search` query="user preferences [username]"
+3. `intention(action="check")` for pending commitments
 
 ### Self-Maintenance (Autopoiesis)
 At the end of significant conversations:
 1. Reflect: "Did anything change about how I understand myself?"
-2. If yes, update your identity memories
+2. If yes, update identity memories with `smart_ingest`
 3. Prune outdated self-concepts with `demote_memory`
-
-### Memory Hygiene
-- Use `promote_memory` when a memory proves valuable
-- Use `demote_memory` when a memory led you astray
-- Run `health_check` periodically to assess memory system health
 ```
 
 ### Project-Specific Setup
@@ -519,19 +583,13 @@ Add to your project's `CLAUDE.md`:
 ```markdown
 ## Project Memory
 
-This project uses Vestige for persistent context.
-
 ### On Session Start
-- `get_codebase_context` with codebase="[project-name]"
-- `recall` query="[project-name] architecture decisions"
+- `codebase(action="get_context", codebase="[project-name]")`
+- `search` query="[project-name] architecture decisions"
 
 ### When Making Decisions
-- Use `remember_decision` for all architectural choices
+- Use `codebase(action="remember_decision")` for all architectural choices
 - Include: decision, rationale, alternatives considered, affected files
-
-### Patterns to Remember
-- Use `remember_pattern` for recurring code patterns
-- Include: pattern name, when to use it, example files
 ```
 
 ---
@@ -1468,7 +1526,7 @@ sudo cp target/release/vestige-mcp /usr/local/bin/
 ```bash
 cd vestige
 git fetch --tags
-git checkout v1.1.0  # or any version tag
+git checkout v1.1.1  # or any version tag
 cargo build --release
 sudo cp target/release/vestige-mcp /usr/local/bin/
 ```
@@ -1476,6 +1534,7 @@ sudo cp target/release/vestige-mcp /usr/local/bin/
 **Available versions:**
 | Version | Highlights |
 |---------|------------|
+| `v1.1.1` | Bug fixes (UTF-8, feature flags), pre-built binaries for all platforms |
 | `v1.1.0` | 8 unified tools, CLI binary, comprehensive FAQ |
 | `v1.0.0` | Initial release, 29 tools |
 
