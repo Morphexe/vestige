@@ -153,7 +153,7 @@ export function parseJsonWithSchema<T extends z.ZodType>(
     }
 
     logger.warn('JSON schema validation failed', {
-      errors: result.error.errors,
+      errors: result.error.issues,
     });
     return fallback;
   } catch (error) {

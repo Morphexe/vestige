@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from '@rstest/core';
-import Database from 'better-sqlite3';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { Database } from 'bun:sqlite';
 import { nanoid } from 'nanoid';
 import {
   createTestDatabase,
@@ -23,7 +23,7 @@ describe('VestigeDatabase', () => {
 
   describe('Schema Setup', () => {
     it('should create all required tables', () => {
-      const tables = db.prepare(
+      const tables = db.query(
         "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
       ).all() as { name: string }[];
 
@@ -40,7 +40,7 @@ describe('VestigeDatabase', () => {
     });
 
     it('should create required indexes', () => {
-      const indexes = db.prepare(
+      const indexes = db.query(
         "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'"
       ).all() as { name: string }[];
 
@@ -64,7 +64,7 @@ describe('VestigeDatabase', () => {
         tags: ['test', 'knowledge'],
       });
 
-      const stmt = db.prepare(`
+      const stmt = db.query(`
         INSERT INTO knowledge_nodes (
           id, content, summary,
           created_at, updated_at, last_accessed_at, access_count,
@@ -94,7 +94,7 @@ describe('VestigeDatabase', () => {
         JSON.stringify(nodeData.tags)
       );
 
-      const result = db.prepare('SELECT * FROM knowledge_nodes WHERE id = ?').get(id) as Record<string, unknown>;
+      const result = db.query('SELECT * FROM knowledge_nodes WHERE id = ?').get(id) as Record<string, unknown>;
 
       expect(result).toBeDefined();
       expect(result['content']).toBe('Test knowledge content');
@@ -107,7 +107,7 @@ describe('VestigeDatabase', () => {
       const now = new Date().toISOString();
       const nodeData = createTestNode();
 
-      const stmt = db.prepare(`
+      const stmt = db.query(`
         INSERT INTO knowledge_nodes (
           id, content,
           created_at, updated_at, last_accessed_at,
@@ -138,7 +138,7 @@ describe('VestigeDatabase', () => {
         '[]'
       );
 
-      const result = db.prepare('SELECT * FROM knowledge_nodes WHERE id = ?').get(id) as Record<string, unknown>;
+      const result = db.query('SELECT * FROM knowledge_nodes WHERE id = ?').get(id) as Record<string, unknown>;
 
       expect(result['retention_strength']).toBe(0.85);
       expect(result['stability_factor']).toBe(2.5);
@@ -157,7 +157,7 @@ describe('VestigeDatabase', () => {
         { id: generateTestId(), content: 'Python is a versatile programming language' },
       ];
 
-      const stmt = db.prepare(`
+      const stmt = db.query(`
         INSERT INTO knowledge_nodes (
           id, content, created_at, updated_at, last_accessed_at,
           source_type, source_platform, confidence, people, concepts, events, tags
@@ -170,7 +170,7 @@ describe('VestigeDatabase', () => {
     });
 
     it('should find nodes by keyword using FTS', () => {
-      const results = db.prepare(`
+      const results = db.query(`
         SELECT kn.* FROM knowledge_nodes kn
         JOIN knowledge_fts fts ON kn.id = fts.id
         WHERE knowledge_fts MATCH ?
@@ -183,7 +183,7 @@ describe('VestigeDatabase', () => {
     });
 
     it('should not find unrelated content', () => {
-      const results = db.prepare(`
+      const results = db.query(`
         SELECT kn.* FROM knowledge_nodes kn
         JOIN knowledge_fts fts ON kn.id = fts.id
         WHERE knowledge_fts MATCH ?
@@ -193,7 +193,7 @@ describe('VestigeDatabase', () => {
     });
 
     it('should find partial matches', () => {
-      const results = db.prepare(`
+      const results = db.query(`
         SELECT kn.* FROM knowledge_nodes kn
         JOIN knowledge_fts fts ON kn.id = fts.id
         WHERE knowledge_fts MATCH ?
@@ -214,7 +214,7 @@ describe('VestigeDatabase', () => {
         organization: 'Acme Inc',
       });
 
-      const stmt = db.prepare(`
+      const stmt = db.query(`
         INSERT INTO people (
           id, name, aliases, relationship_type, organization,
           contact_frequency, shared_topics, shared_projects, relationship_health,
@@ -237,7 +237,7 @@ describe('VestigeDatabase', () => {
         now
       );
 
-      const result = db.prepare('SELECT * FROM people WHERE id = ?').get(id) as Record<string, unknown>;
+      const result = db.query('SELECT * FROM people WHERE id = ?').get(id) as Record<string, unknown>;
 
       expect(result).toBeDefined();
       expect(result['name']).toBe('John Doe');
@@ -249,12 +249,12 @@ describe('VestigeDatabase', () => {
       const id = nanoid();
       const now = new Date().toISOString();
 
-      db.prepare(`
+      db.query(`
         INSERT INTO people (id, name, aliases, social_links, shared_topics, shared_projects, created_at, updated_at)
         VALUES (?, ?, '[]', '{}', '[]', '[]', ?, ?)
       `).run(id, 'Jane Smith', now, now);
 
-      const result = db.prepare('SELECT * FROM people WHERE name = ?').get('Jane Smith') as Record<string, unknown>;
+      const result = db.query('SELECT * FROM people WHERE name = ?').get('Jane Smith') as Record<string, unknown>;
 
       expect(result).toBeDefined();
       expect(result['id']).toBe(id);
@@ -264,12 +264,12 @@ describe('VestigeDatabase', () => {
       const id = nanoid();
       const now = new Date().toISOString();
 
-      db.prepare(`
+      db.query(`
         INSERT INTO people (id, name, aliases, social_links, shared_topics, shared_projects, created_at, updated_at)
         VALUES (?, ?, ?, '{}', '[]', '[]', ?, ?)
       `).run(id, 'Robert Johnson', JSON.stringify(['Bob', 'Bobby']), now, now);
 
-      const result = db.prepare(`
+      const result = db.query(`
         SELECT * FROM people WHERE name = ? OR aliases LIKE ?
       `).get('Bob', '%"Bob"%') as Record<string, unknown>;
 
@@ -288,7 +288,7 @@ describe('VestigeDatabase', () => {
       const now = new Date().toISOString();
 
       // Create two nodes
-      const stmt = db.prepare(`
+      const stmt = db.query(`
         INSERT INTO knowledge_nodes (
           id, content, created_at, updated_at, last_accessed_at,
           source_type, source_platform, confidence, people, concepts, events, tags
@@ -307,12 +307,12 @@ describe('VestigeDatabase', () => {
         weight: 0.8,
       });
 
-      db.prepare(`
+      db.query(`
         INSERT INTO graph_edges (id, from_id, to_id, edge_type, weight, metadata, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(edgeId, edgeData.fromId, edgeData.toId, edgeData.edgeType, edgeData.weight, '{}', now);
 
-      const result = db.prepare('SELECT * FROM graph_edges WHERE id = ?').get(edgeId) as Record<string, unknown>;
+      const result = db.query('SELECT * FROM graph_edges WHERE id = ?').get(edgeId) as Record<string, unknown>;
 
       expect(result).toBeDefined();
       expect(result['from_id']).toBe(nodeId1);
@@ -325,12 +325,12 @@ describe('VestigeDatabase', () => {
       const edgeId = nanoid();
       const now = new Date().toISOString();
 
-      db.prepare(`
+      db.query(`
         INSERT INTO graph_edges (id, from_id, to_id, edge_type, weight, metadata, created_at)
         VALUES (?, ?, ?, 'relates_to', 0.5, '{}', ?)
       `).run(edgeId, nodeId1, nodeId2, now);
 
-      const results = db.prepare(`
+      const results = db.query(`
         SELECT DISTINCT
           CASE WHEN from_id = ? THEN to_id ELSE from_id END as related_id
         FROM graph_edges
@@ -344,14 +344,14 @@ describe('VestigeDatabase', () => {
     it('should enforce unique constraint on from_id, to_id, edge_type', () => {
       const now = new Date().toISOString();
 
-      db.prepare(`
+      db.query(`
         INSERT INTO graph_edges (id, from_id, to_id, edge_type, weight, metadata, created_at)
         VALUES (?, ?, ?, 'relates_to', 0.5, '{}', ?)
       `).run(nanoid(), nodeId1, nodeId2, now);
 
       // Attempting to insert duplicate should fail
       expect(() => {
-        db.prepare(`
+        db.query(`
           INSERT INTO graph_edges (id, from_id, to_id, edge_type, weight, metadata, created_at)
           VALUES (?, ?, ?, 'relates_to', 0.7, '{}', ?)
         `).run(nanoid(), nodeId1, nodeId2, now);
@@ -365,7 +365,7 @@ describe('VestigeDatabase', () => {
       const now = new Date().toISOString();
 
       // Insert a node with initial retention
-      db.prepare(`
+      db.query(`
         INSERT INTO knowledge_nodes (
           id, content, created_at, updated_at, last_accessed_at,
           retention_strength, stability_factor,
@@ -375,11 +375,11 @@ describe('VestigeDatabase', () => {
 
       // Simulate decay
       const newRetention = 0.75;
-      db.prepare(`
+      db.query(`
         UPDATE knowledge_nodes SET retention_strength = ? WHERE id = ?
       `).run(newRetention, id);
 
-      const result = db.prepare('SELECT retention_strength FROM knowledge_nodes WHERE id = ?').get(id) as { retention_strength: number };
+      const result = db.query('SELECT retention_strength FROM knowledge_nodes WHERE id = ?').get(id) as { retention_strength: number };
 
       expect(result.retention_strength).toBe(0.75);
     });
@@ -388,7 +388,7 @@ describe('VestigeDatabase', () => {
       const id = nanoid();
       const now = new Date().toISOString();
 
-      db.prepare(`
+      db.query(`
         INSERT INTO knowledge_nodes (
           id, content, created_at, updated_at, last_accessed_at,
           review_count, source_type, source_platform, confidence, people, concepts, events, tags
@@ -396,7 +396,7 @@ describe('VestigeDatabase', () => {
       `).run(id, now, now, now);
 
       // Simulate review
-      db.prepare(`
+      db.query(`
         UPDATE knowledge_nodes
         SET review_count = review_count + 1,
             retention_strength = 1.0,
@@ -404,7 +404,7 @@ describe('VestigeDatabase', () => {
         WHERE id = ?
       `).run(new Date().toISOString(), id);
 
-      const result = db.prepare('SELECT review_count, retention_strength FROM knowledge_nodes WHERE id = ?').get(id) as { review_count: number; retention_strength: number };
+      const result = db.query('SELECT review_count, retention_strength FROM knowledge_nodes WHERE id = ?').get(id) as { review_count: number; retention_strength: number };
 
       expect(result.review_count).toBe(1);
       expect(result.retention_strength).toBe(1.0);
@@ -417,7 +417,7 @@ describe('VestigeDatabase', () => {
 
       // Insert 3 nodes
       for (let i = 0; i < 3; i++) {
-        db.prepare(`
+        db.query(`
           INSERT INTO knowledge_nodes (
             id, content, created_at, updated_at, last_accessed_at,
             source_type, source_platform, confidence, people, concepts, events, tags
@@ -425,7 +425,7 @@ describe('VestigeDatabase', () => {
         `).run(nanoid(), `Node ${i}`, now, now, now);
       }
 
-      const result = db.prepare('SELECT COUNT(*) as count FROM knowledge_nodes').get() as { count: number };
+      const result = db.query('SELECT COUNT(*) as count FROM knowledge_nodes').get() as { count: number };
       expect(result.count).toBe(3);
     });
 
@@ -434,13 +434,13 @@ describe('VestigeDatabase', () => {
 
       // Insert 2 people
       for (let i = 0; i < 2; i++) {
-        db.prepare(`
+        db.query(`
           INSERT INTO people (id, name, aliases, social_links, shared_topics, shared_projects, created_at, updated_at)
           VALUES (?, ?, '[]', '{}', '[]', '[]', ?, ?)
         `).run(nanoid(), `Person ${i}`, now, now);
       }
 
-      const result = db.prepare('SELECT COUNT(*) as count FROM people').get() as { count: number };
+      const result = db.query('SELECT COUNT(*) as count FROM people').get() as { count: number };
       expect(result.count).toBe(2);
     });
 
@@ -450,7 +450,7 @@ describe('VestigeDatabase', () => {
       // Create nodes first
       const nodeIds = [nanoid(), nanoid(), nanoid()];
       for (const id of nodeIds) {
-        db.prepare(`
+        db.query(`
           INSERT INTO knowledge_nodes (
             id, content, created_at, updated_at, last_accessed_at,
             source_type, source_platform, confidence, people, concepts, events, tags
@@ -459,17 +459,17 @@ describe('VestigeDatabase', () => {
       }
 
       // Insert 2 edges
-      db.prepare(`
+      db.query(`
         INSERT INTO graph_edges (id, from_id, to_id, edge_type, weight, metadata, created_at)
         VALUES (?, ?, ?, 'relates_to', 0.5, '{}', ?)
       `).run(nanoid(), nodeIds[0], nodeIds[1], now);
 
-      db.prepare(`
+      db.query(`
         INSERT INTO graph_edges (id, from_id, to_id, edge_type, weight, metadata, created_at)
         VALUES (?, ?, ?, 'supports', 0.7, '{}', ?)
       `).run(nanoid(), nodeIds[1], nodeIds[2], now);
 
-      const result = db.prepare('SELECT COUNT(*) as count FROM graph_edges').get() as { count: number };
+      const result = db.query('SELECT COUNT(*) as count FROM graph_edges').get() as { count: number };
       expect(result.count).toBe(2);
     });
   });

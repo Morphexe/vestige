@@ -1,8 +1,14 @@
 /**
- * FSRS-5 (Free Spaced Repetition Scheduler) Algorithm Implementation
+ * FSRS-6 (Free Spaced Repetition Scheduler) Algorithm Implementation
  *
- * Based on the FSRS-5 algorithm by Jarrett Ye
+ * Based on the FSRS-6 algorithm - 20-30% more efficient than SM-2
  * Paper: https://github.com/open-spaced-repetition/fsrs4anki/wiki/The-Algorithm
+ *
+ * FSRS-6 improvements over FSRS-5:
+ * - New w17, w18, w19 weights for same-day review handling
+ * - New w20 for personalizable forgetting curve decay
+ * - Updated mean reversion formula with (10-D)/9 scaling
+ * - Post-lapse stability cannot exceed pre-lapse stability
  *
  * This is a production-ready implementation with full TypeScript types,
  * sentiment integration for emotional memory boosting, and comprehensive
@@ -12,32 +18,51 @@
 import { z } from 'zod';
 
 // ============================================================================
-// FSRS-5 CONSTANTS
+// FSRS-6 CONSTANTS (21 Parameters)
 // ============================================================================
 
 /**
- * FSRS-5 default weights (w0 to w18)
+ * FSRS-6 default weights (w0 to w20)
  *
  * These weights are optimized from millions of Anki review records.
  * They control:
  * - w0-w3: Initial stability for each grade (Again, Hard, Good, Easy)
  * - w4-w5: Initial difficulty calculation
- * - w6-w7: Short-term stability calculation
+ * - w6-w7: Difficulty update parameters (w7 = mean reversion weight)
  * - w8-w10: Stability increase factors after successful recall
- * - w11-w14: Difficulty update parameters
- * - w15-w16: Forgetting curve (stability after lapse)
- * - w17-w18: Short-term scheduling parameters
+ * - w11-w14: Forgetting (lapse) stability calculation
+ * - w15-w16: Hard penalty and Easy bonus
+ * - w17-w19: Same-day review handling (NEW in FSRS-6)
+ * - w20: Forgetting curve decay (NEW in FSRS-6 - PERSONALIZABLE)
  */
 export const FSRS_WEIGHTS: readonly [
   number, number, number, number, number,
   number, number, number, number, number,
   number, number, number, number, number,
-  number, number, number, number
+  number, number, number, number, number,
+  number
 ] = [
-  0.40255, 1.18385, 3.173, 15.69105, 7.1949,
-  0.5345, 1.4604, 0.0046, 1.54575, 0.1192,
-  1.01925, 1.9395, 0.11, 0.29605, 2.2698,
-  0.2315, 2.9898, 0.51655, 0.6621
+  0.212,   // w0: Initial stability for Again
+  1.2931,  // w1: Initial stability for Hard
+  2.3065,  // w2: Initial stability for Good
+  8.2956,  // w3: Initial stability for Easy
+  6.4133,  // w4: Initial difficulty base
+  0.8334,  // w5: Initial difficulty grade modifier
+  3.0194,  // w6: Difficulty delta
+  0.001,   // w7: Difficulty mean reversion weight
+  1.8722,  // w8: Stability increase base
+  0.1666,  // w9: Stability saturation
+  0.796,   // w10: Retrievability influence on stability
+  1.4835,  // w11: Forget stability base
+  0.0614,  // w12: Forget difficulty influence
+  0.2629,  // w13: Forget stability influence
+  1.6483,  // w14: Forget retrievability influence
+  0.6014,  // w15: Hard penalty
+  1.8729,  // w16: Easy bonus
+  0.5425,  // w17: Same-day review base (NEW in FSRS-6)
+  0.0912,  // w18: Same-day review grade modifier (NEW in FSRS-6)
+  0.0658,  // w19: Same-day review stability influence (NEW in FSRS-6)
+  0.1542,  // w20: Forgetting curve decay (NEW in FSRS-6 - PERSONALIZABLE)
 ] as const;
 
 /**
@@ -54,8 +79,8 @@ export const FSRS_CONSTANTS = {
   MAX_STABILITY: 36500,
   /** Default desired retention rate */
   DEFAULT_RETENTION: 0.9,
-  /** Factor for converting retrievability to interval */
-  DECAY_FACTOR: 0.9,
+  /** Default forgetting curve decay (w20) */
+  DEFAULT_DECAY: 0.1542,
   /** Small epsilon for numerical stability */
   EPSILON: 1e-10,
 } as const;
@@ -146,19 +171,20 @@ export const ReviewResultSchema = z.object({
 export type ReviewResult = z.infer<typeof ReviewResultSchema>;
 
 /**
- * Type for the 19-element FSRS weights tuple
+ * Type for the 21-element FSRS-6 weights tuple
  */
 export type FSRSWeightsTuple = readonly [
   number, number, number, number, number,
   number, number, number, number, number,
   number, number, number, number, number,
-  number, number, number, number
+  number, number, number, number, number,
+  number
 ];
 
 /**
- * Zod schema for FSRS weights
+ * Zod schema for FSRS-6 weights
  */
-const FSRSWeightsSchema = z.array(z.number()).length(19);
+const FSRSWeightsSchema = z.array(z.number()).length(21);
 
 /**
  * Configuration for FSRS scheduler
@@ -168,12 +194,14 @@ export const FSRSConfigSchema = z.object({
   desiredRetention: z.number().min(0.7).max(0.99).default(0.9),
   /** Maximum interval in days */
   maximumInterval: z.number().min(1).max(36500).default(36500),
-  /** Custom weights (must be exactly 19 values) */
+  /** Custom weights (must be exactly 21 values for FSRS-6) */
   weights: FSRSWeightsSchema.optional(),
   /** Enable sentiment boost for emotional memories */
   enableSentimentBoost: z.boolean().default(true),
   /** Maximum sentiment boost multiplier (1.0-3.0) */
   maxSentimentBoost: z.number().min(1).max(3).default(2),
+  /** Enable interval fuzzing to prevent clustering */
+  enableFuzz: z.boolean().default(false),
 });
 
 /**
@@ -184,12 +212,14 @@ export interface FSRSConfig {
   desiredRetention?: number;
   /** Maximum interval in days */
   maximumInterval?: number;
-  /** Custom weights (must be exactly 19 values) */
+  /** Custom weights (must be exactly 21 values for FSRS-6) */
   weights?: readonly number[];
   /** Enable sentiment boost for emotional memories */
   enableSentimentBoost?: boolean;
   /** Maximum sentiment boost multiplier (1.0-3.0) */
   maxSentimentBoost?: number;
+  /** Enable interval fuzzing to prevent clustering */
+  enableFuzz?: boolean;
 }
 
 /**
@@ -201,16 +231,36 @@ export interface ResolvedFSRSConfig {
   weights: readonly number[] | undefined;
   enableSentimentBoost: boolean;
   maxSentimentBoost: number;
+  enableFuzz: boolean;
 }
 
 // ============================================================================
-// CORE FSRS-5 FUNCTIONS
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Clamp a value between min and max
+ */
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+/**
+ * Calculate forgetting curve factor based on w20
+ * FSRS-6: factor = 0.9^(-1/w20) - 1
+ */
+export function forgettingFactor(w20: number): number {
+  return Math.pow(0.9, -1 / w20) - 1;
+}
+
+// ============================================================================
+// CORE FSRS-6 FUNCTIONS
 // ============================================================================
 
 /**
  * Calculate initial difficulty for a new card based on first rating
  *
- * Formula: D(G) = w[4] - e^(w[5]*(G-1)) + 1
+ * Formula: D0(G) = w4 - e^(w5*(G-1)) + 1
  *
  * @param grade - First review grade (1-4)
  * @param weights - FSRS weights array
@@ -223,7 +273,7 @@ export function initialDifficulty(
   const w4 = weights[4] ?? FSRS_WEIGHTS[4];
   const w5 = weights[5] ?? FSRS_WEIGHTS[5];
 
-  // D(G) = w[4] - e^(w[5]*(G-1)) + 1
+  // D0(G) = w4 - e^(w5*(G-1)) + 1
   const d = w4 - Math.exp(w5 * (grade - 1)) + 1;
 
   // Clamp to valid range
@@ -233,9 +283,9 @@ export function initialDifficulty(
 /**
  * Calculate initial stability for a new card based on first rating
  *
- * Formula: S(G) = w[G-1] (direct lookup from weights 0-3)
+ * Formula: S0(G) = w[G-1] (direct lookup from weights 0-3)
  *
- * Note: FSRS-5 uses the first 4 weights as initial stability values
+ * Note: FSRS-6 uses the first 4 weights as initial stability values
  * for grades 1-4 respectively.
  *
  * @param grade - First review grade (1-4)
@@ -246,8 +296,7 @@ export function initialStability(
   grade: ReviewGrade,
   weights: readonly number[] = FSRS_WEIGHTS
 ): number {
-  // FSRS-5: S0(G) = w[G-1]
-  // Grade is 1-4, so index is 0-3, which is always valid for FSRS_WEIGHTS
+  // FSRS-6: S0(G) = w[G-1]
   const index = grade - 1;
   const s = weights[index] ?? FSRS_WEIGHTS[index] ?? FSRS_WEIGHTS[0];
 
@@ -258,15 +307,35 @@ export function initialStability(
 /**
  * Calculate retrievability (probability of recall) based on stability and elapsed time
  *
- * Formula: R = e^(-t/S) where FSRS uses (1 + t/(9*S))^(-1)
+ * FSRS-6 formula: R = (1 + factor * t / S)^(-w20)
+ * where factor = 0.9^(-1/w20) - 1
  *
- * This is the power forgetting curve used in FSRS-5.
+ * This is the power forgetting curve - more accurate than exponential
+ * for modeling human memory.
  *
  * @param stability - Current stability in days
  * @param elapsedDays - Days since last review
  * @returns Retrievability (0-1)
  */
 export function retrievability(stability: number, elapsedDays: number): number {
+  return retrievabilityWithDecay(stability, elapsedDays, FSRS_CONSTANTS.DEFAULT_DECAY);
+}
+
+/**
+ * Calculate retrievability with custom decay parameter (for personalization)
+ *
+ * FSRS-6 formula: R = (1 + factor * t / S)^(-w20)
+ *
+ * @param stability - Current stability in days
+ * @param elapsedDays - Days since last review
+ * @param w20 - Forgetting curve decay parameter
+ * @returns Retrievability (0-1)
+ */
+export function retrievabilityWithDecay(
+  stability: number,
+  elapsedDays: number,
+  w20: number
+): number {
   if (stability <= 0) {
     return 0;
   }
@@ -275,10 +344,8 @@ export function retrievability(stability: number, elapsedDays: number): number {
     return 1;
   }
 
-  // FSRS-5 power forgetting curve: R = (1 + t/(9*S))^(-1)
-  // This is equivalent to the power law of forgetting
-  const factor = 9 * stability;
-  const r = Math.pow(1 + elapsedDays / factor, -1);
+  const factor = forgettingFactor(w20);
+  const r = Math.pow(1 + (factor * elapsedDays) / stability, -w20);
 
   return clamp(r, 0, 1);
 }
@@ -286,12 +353,13 @@ export function retrievability(stability: number, elapsedDays: number): number {
 /**
  * Calculate next difficulty after a review
  *
- * Formula: D' = w[7] * D + (1 - w[7]) * mean_reversion(D, G)
- * where mean_reversion uses a linear combination with the initial difficulty
+ * FSRS-6 formula with mean reversion:
+ * D' = w7 * D0(4) + (1 - w7) * (D + delta * ((10 - D) / 9))
+ * where delta = -w6 * (G - 3)
  *
- * FSRS-5 mean reversion formula:
- * D' = D - w[6] * (G - 3)
- * Then: D' = w[7] * D0 + (1 - w[7]) * D'
+ * The ((10 - D) / 9) term provides mean reversion scaling:
+ * - High difficulty (D=10): scaling = 0, so difficulty stays high
+ * - Low difficulty (D=1): scaling = 1, full delta applied
  *
  * @param currentD - Current difficulty (1-10)
  * @param grade - Review grade (1-4)
@@ -306,35 +374,36 @@ export function nextDifficulty(
   const w6 = weights[6] ?? FSRS_WEIGHTS[6];
   const w7 = weights[7] ?? FSRS_WEIGHTS[7];
 
-  // Initial difficulty for mean reversion (what D would be for a "Good" rating)
-  const d0 = initialDifficulty(Grade.Good, weights);
+  // FSRS-6 spec: Mean reversion target is D0(4) = initial difficulty for Easy
+  const d0 = initialDifficulty(Grade.Easy, weights);
 
   // Delta based on grade deviation from "Good" (3)
   // Negative grade (Again=1, Hard=2) increases difficulty
   // Positive grade (Easy=4) decreases difficulty
   const delta = -w6 * (grade - 3);
 
-  // Apply delta to current difficulty
-  let newD = currentD + delta;
+  // FSRS-6: Apply mean reversion scaling ((10 - D) / 9)
+  const meanReversionScale = (10 - currentD) / 9;
+  const newD = currentD + delta * meanReversionScale;
 
-  // Mean reversion: blend towards initial difficulty
-  newD = w7 * d0 + (1 - w7) * newD;
+  // Convex combination with initial difficulty for stability
+  const finalD = w7 * d0 + (1 - w7) * newD;
 
-  return clamp(newD, FSRS_CONSTANTS.MIN_DIFFICULTY, FSRS_CONSTANTS.MAX_DIFFICULTY);
+  return clamp(finalD, FSRS_CONSTANTS.MIN_DIFFICULTY, FSRS_CONSTANTS.MAX_DIFFICULTY);
 }
 
 /**
  * Calculate next stability after a successful recall
  *
- * FSRS-5 recall stability formula:
- * S'(r) = S * (e^(w[8]) * (11 - D) * S^(-w[9]) * (e^(w[10]*(1-R)) - 1) * hardPenalty * easyBonus + 1)
+ * FSRS-6 recall stability formula:
+ * S' = S * (e^w8 * (11-D) * S^(-w9) * (e^(w10*(1-R)) - 1) * HP * EB + 1)
  *
- * This is the full FSRS-5 stability increase formula that accounts for:
+ * This is the full FSRS-6 stability increase formula that accounts for:
  * - Current stability (S)
  * - Difficulty (D)
  * - Retrievability at time of review (R)
- * - Hard penalty for grade 2
- * - Easy bonus for grade 4
+ * - Hard penalty (HP) for grade 2
+ * - Easy bonus (EB) for grade 4
  *
  * @param currentS - Current stability in days
  * @param difficulty - Current difficulty (1-10)
@@ -367,8 +436,8 @@ export function nextRecallStability(
   // Easy bonus (grade = 4)
   const easyBonus = grade === Grade.Easy ? w16 : 1;
 
-  // FSRS-5 recall stability formula
-  // S'(r) = S * (e^(w8) * (11 - D) * S^(-w9) * (e^(w10*(1-R)) - 1) * hardPenalty * easyBonus + 1)
+  // FSRS-6 recall stability formula
+  // S' = S * (e^w8 * (11-D) * S^(-w9) * (e^(w10*(1-R)) - 1) * HP * EB + 1)
   const factor =
     Math.exp(w8) *
     (11 - difficulty) *
@@ -386,11 +455,10 @@ export function nextRecallStability(
 /**
  * Calculate stability after a lapse (forgotten/Again rating)
  *
- * FSRS-5 forget stability formula:
- * S'(f) = w[11] * D^(-w[12]) * ((S+1)^w[13] - 1) * e^(w[14]*(1-R))
+ * FSRS-6 forget stability formula:
+ * S'f = w11 * D^(-w12) * ((S+1)^w13 - 1) * e^(w14*(1-R))
  *
- * This calculates the new stability after forgetting, which is typically
- * much lower than the previous stability but not zero (some memory trace remains).
+ * IMPORTANT: FSRS-6 spec says post-lapse stability cannot exceed pre-lapse stability
  *
  * @param difficulty - Current difficulty (1-10)
  * @param currentS - Current stability before lapse
@@ -409,12 +477,43 @@ export function nextForgetStability(
   const w13 = weights[13] ?? FSRS_WEIGHTS[13];
   const w14 = weights[14] ?? FSRS_WEIGHTS[14];
 
-  // S'(f) = w11 * D^(-w12) * ((S+1)^w13 - 1) * e^(w14*(1-R))
-  const newS =
+  // S'f = w11 * D^(-w12) * ((S+1)^w13 - 1) * e^(w14*(1-R))
+  let newS =
     w11 *
     Math.pow(difficulty, -w12) *
     (Math.pow(currentS + 1, w13) - 1) *
     Math.exp(w14 * (1 - retrievabilityR));
+
+  // FSRS-6 spec: Post-lapse stability cannot exceed pre-lapse stability
+  newS = Math.min(newS, currentS);
+
+  return clamp(newS, FSRS_CONSTANTS.MIN_STABILITY, FSRS_CONSTANTS.MAX_STABILITY);
+}
+
+/**
+ * Calculate stability for same-day reviews (NEW in FSRS-6)
+ *
+ * Formula: S'(S,G) = S * e^(w17 * (G - 3 + w18)) * S^(-w19)
+ *
+ * This handles the case where a card is reviewed multiple times in the same day,
+ * which was not well-modeled in FSRS-5.
+ *
+ * @param currentS - Current stability in days
+ * @param grade - Review grade (1-4)
+ * @param weights - FSRS weights array
+ * @returns New stability for same-day review
+ */
+export function sameDayStability(
+  currentS: number,
+  grade: ReviewGrade,
+  weights: readonly number[] = FSRS_WEIGHTS
+): number {
+  const w17 = weights[17] ?? FSRS_WEIGHTS[17];
+  const w18 = weights[18] ?? FSRS_WEIGHTS[18];
+  const w19 = weights[19] ?? FSRS_WEIGHTS[19];
+
+  const g = grade as number;
+  const newS = currentS * Math.exp(w17 * (g - 3 + w18)) * Math.pow(currentS, -w19);
 
   return clamp(newS, FSRS_CONSTANTS.MIN_STABILITY, FSRS_CONSTANTS.MAX_STABILITY);
 }
@@ -422,16 +521,18 @@ export function nextForgetStability(
 /**
  * Calculate next review interval based on stability and desired retention
  *
- * Formula: I = S * ln(R) / ln(0.9) where we solve for t when R = desired_retention
- * Using the power forgetting curve: I = 9 * S * (1/R - 1)
+ * FSRS-6 formula (inverse of retrievability):
+ * t = S / factor * (R^(-1/w20) - 1)
  *
  * @param stability - Current stability in days
  * @param desiredRetention - Target retention rate (default 0.9)
+ * @param w20 - Forgetting curve decay (default 0.1542)
  * @returns Interval in days until next review
  */
 export function nextInterval(
   stability: number,
-  desiredRetention: number = FSRS_CONSTANTS.DEFAULT_RETENTION
+  desiredRetention: number = FSRS_CONSTANTS.DEFAULT_RETENTION,
+  w20: number = FSRS_CONSTANTS.DEFAULT_DECAY
 ): number {
   if (stability <= 0) {
     return 0;
@@ -445,11 +546,32 @@ export function nextInterval(
     return FSRS_CONSTANTS.MAX_STABILITY; // If we don't care about retention
   }
 
-  // Solve for t in: R = (1 + t/(9*S))^(-1)
-  // t = 9 * S * (R^(-1) - 1)
-  const interval = 9 * stability * (Math.pow(desiredRetention, -1) - 1);
+  const factor = forgettingFactor(w20);
+  const interval = (stability / factor) * (Math.pow(desiredRetention, -1 / w20) - 1);
 
   return Math.max(0, Math.round(interval));
+}
+
+/**
+ * Apply interval fuzzing to prevent review clustering
+ *
+ * Uses deterministic fuzzing based on a seed to ensure reproducibility.
+ *
+ * @param interval - Base interval in days
+ * @param seed - Seed for deterministic fuzzing
+ * @returns Fuzzed interval
+ */
+export function fuzzInterval(interval: number, seed: number): number {
+  if (interval <= 2) {
+    return interval;
+  }
+
+  // Use simple LCG for deterministic fuzzing
+  const fuzzRange = Math.max(1, Math.floor(interval * 0.05));
+  const random = ((seed * 1103515245 + 12345) >>> 0) % 32768;
+  const offset = (random % (2 * fuzzRange + 1)) - fuzzRange;
+
+  return Math.max(1, interval + offset);
 }
 
 /**
@@ -483,7 +605,7 @@ export function applySentimentBoost(
 // ============================================================================
 
 /**
- * FSRSScheduler - Main class for FSRS-5 spaced repetition scheduling
+ * FSRSScheduler - Main class for FSRS-6 spaced repetition scheduling
  *
  * Usage:
  * ```typescript
@@ -516,6 +638,7 @@ export class FSRSScheduler {
       weights: config.weights ? [...config.weights] : undefined,
       enableSentimentBoost: config.enableSentimentBoost ?? true,
       maxSentimentBoost: config.maxSentimentBoost ?? 2,
+      enableFuzz: config.enableFuzz ?? false,
     });
 
     // Extract weights as a readonly number array (or undefined)
@@ -529,6 +652,7 @@ export class FSRSScheduler {
       weights: parsedWeights,
       enableSentimentBoost: parsed.enableSentimentBoost ?? true,
       maxSentimentBoost: parsed.maxSentimentBoost ?? 2,
+      enableFuzz: parsed.enableFuzz ?? false,
     };
 
     this.weights = this.config.weights ?? FSRS_WEIGHTS;
@@ -569,6 +693,9 @@ export class FSRSScheduler {
     // Validate grade
     const validatedGrade = ReviewGradeSchema.parse(grade);
 
+    // Determine if this is a same-day review
+    const isSameDay = elapsedDays < 1;
+
     // Calculate retrievability at time of review
     const r = currentState.state === 'New'
       ? 1
@@ -584,6 +711,9 @@ export class FSRSScheduler {
       // Lapse - memory failed
       isLapse = currentState.state === 'Review' || currentState.state === 'Relearning';
       newState = this.handleLapse(currentState, r);
+    } else if (isSameDay && currentState.reps > 0) {
+      // Same-day review (not first review)
+      newState = this.handleSameDayReview(currentState, validatedGrade);
     } else {
       // Successful recall
       newState = this.handleRecall(currentState, validatedGrade, r);
@@ -603,10 +733,15 @@ export class FSRSScheduler {
     }
 
     // Calculate next interval
-    const interval = Math.min(
-      nextInterval(newState.stability, this.config.desiredRetention),
-      this.config.maximumInterval
-    );
+    let interval = nextInterval(newState.stability, this.config.desiredRetention);
+
+    // Apply fuzzing if enabled
+    if (this.config.enableFuzz && interval > 2) {
+      interval = fuzzInterval(interval, Date.now());
+    }
+
+    // Apply maximum interval limit
+    interval = Math.min(interval, this.config.maximumInterval);
 
     newState.scheduledDays = interval;
     newState.lastReview = new Date();
@@ -688,6 +823,22 @@ export class FSRSScheduler {
   }
 
   /**
+   * Handle same-day review (NEW in FSRS-6)
+   */
+  private handleSameDayReview(currentState: FSRSState, grade: ReviewGrade): FSRSState {
+    const newS = sameDayStability(currentState.stability, grade, this.weights);
+    const newD = nextDifficulty(currentState.difficulty, grade, this.weights);
+
+    return {
+      ...currentState,
+      difficulty: newD,
+      stability: newS,
+      state: currentState.state === 'New' ? 'Learning' : currentState.state,
+      reps: currentState.reps + 1,
+    };
+  }
+
+  /**
    * Get the current retrievability for a state
    *
    * @param state - FSRS state
@@ -745,13 +896,6 @@ export class FSRSScheduler {
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
-
-/**
- * Clamp a value between min and max
- */
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
 
 /**
  * Convert FSRSState to a JSON-serializable format

@@ -1,13 +1,13 @@
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 import type { KnowledgeNodeInput, PersonNode, GraphEdge } from '../core/types.js';
 
 /**
  * Create an in-memory database for testing
  */
-export function createTestDatabase(): Database.Database {
+export function createTestDatabase(): Database {
   const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA foreign_keys = ON');
 
   // Initialize tables (from database.ts initializeSchema)
   db.exec(`
@@ -268,7 +268,7 @@ export function createTestEdge(fromId: string, toId: string, overrides: Partial<
 /**
  * Clean up test database
  */
-export function cleanupTestDatabase(db: Database.Database): void {
+export function cleanupTestDatabase(db: Database): void {
   try {
     db.close();
   } catch {

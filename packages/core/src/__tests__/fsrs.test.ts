@@ -1,4 +1,4 @@
-import { describe, it, expect } from '@rstest/core';
+import { describe, it, expect } from 'bun:test';
 import {
   FSRSScheduler,
   Grade,

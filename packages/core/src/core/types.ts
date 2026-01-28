@@ -14,6 +14,15 @@ export const SourceTypeSchema = z.enum([
   'meeting',
   'manual',
   'webpage',
+  // MCP tool types
+  'pattern',
+  'decision',
+  'intention',
+  'fact',
+  'concept',
+  'event',
+  'person',
+  'place',
 ]);
 export type SourceType = z.infer<typeof SourceTypeSchema>;
 
@@ -32,6 +41,13 @@ export const SourcePlatformSchema = z.enum([
   'instapaper',
   'manual',
   'browser',
+  // MCP tool platforms
+  'mcp',
+  'smart_ingest',
+  'unit-test',
+  'test',
+  'unknown',
+  'wikipedia',
 ]);
 export type SourcePlatform = z.infer<typeof SourcePlatformSchema>;
 

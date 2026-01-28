@@ -1,9 +1,8 @@
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 import { nanoid } from 'nanoid';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import crypto from 'crypto';
 import { execSync } from 'child_process';
 import natural from 'natural';
 import type { KnowledgeNode, KnowledgeNodeInput, PersonNode, GraphEdge, Source, Interaction } from './types.js';
@@ -354,7 +353,7 @@ export function getDbPath(): string {
   return envPath || DEFAULT_DB_PATH;
 }
 
-export function initializeDatabase(dbPath?: string): Database.Database {
+export function initializeDatabase(dbPath?: string): Database {
   const finalPath = dbPath || getDbPath();
 
   // Ensure directory exists
@@ -372,22 +371,22 @@ export function initializeDatabase(dbPath?: string): Database.Database {
 
   // CRITICAL: Set busy timeout FIRST to handle concurrent access
   // This prevents SQLITE_BUSY errors when multiple clients access the DB
-  db.pragma(`busy_timeout = ${BUSY_TIMEOUT_MS}`);
+  db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
 
   // Enable WAL mode for better concurrent performance
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA foreign_keys = ON');
 
   // Optimize for performance
-  db.pragma('synchronous = NORMAL');
-  db.pragma('cache_size = -64000'); // 64MB cache
-  db.pragma('temp_store = MEMORY');
+  db.exec('PRAGMA synchronous = NORMAL');
+  db.exec('PRAGMA cache_size = -64000'); // 64MB cache
+  db.exec('PRAGMA temp_store = MEMORY');
 
   // Security: Limit memory usage to prevent DoS
-  db.pragma('max_page_count = 1073741823'); // ~2TB max (practical limit)
+  db.exec('PRAGMA max_page_count = 1073741823'); // ~2TB max (practical limit)
 
   // Enable secure delete to overwrite deleted data
-  db.pragma('secure_delete = ON');
+  db.exec('PRAGMA secure_delete = ON');
 
   // Create tables
   createTables(db);
@@ -398,7 +397,7 @@ export function initializeDatabase(dbPath?: string): Database.Database {
   return db;
 }
 
-function createTables(db: Database.Database): void {
+function createTables(db: Database): void {
   // Knowledge Nodes table
   db.exec(`
     CREATE TABLE IF NOT EXISTS knowledge_nodes (
@@ -611,9 +610,9 @@ function createTables(db: Database.Database): void {
  * Run database migrations for existing databases
  * This ensures older databases get new columns
  */
-function runMigrations(db: Database.Database): void {
+function runMigrations(db: Database): void {
   try {
-    const columns = db.prepare("PRAGMA table_info(knowledge_nodes)").all() as { name: string }[];
+    const columns = db.query("PRAGMA table_info(knowledge_nodes)").all() as { name: string }[];
 
     // Migration 1: Add stability_factor column if it doesn't exist
     const hasStabilityFactor = columns.some(col => col.name === 'stability_factor');
@@ -642,8 +641,8 @@ function runMigrations(db: Database.Database): void {
 
       // Backfill sentiment for existing nodes
       // This analyzes all existing content and sets sentiment intensity
-      const nodes = db.prepare('SELECT id, content FROM knowledge_nodes').all() as { id: string; content: string }[];
-      const updateStmt = db.prepare('UPDATE knowledge_nodes SET sentiment_intensity = ? WHERE id = ?');
+      const nodes = db.query('SELECT id, content FROM knowledge_nodes').all() as { id: string; content: string }[];
+      const updateStmt = db.query('UPDATE knowledge_nodes SET sentiment_intensity = ? WHERE id = ?');
 
       for (const node of nodes) {
         const intensity = analyzeSentimentIntensity(node.content);
@@ -730,7 +729,7 @@ class OperationMutex {
 }
 
 export class VestigeDatabase {
-  private db: Database.Database;
+  private db: Database;
   private dbPath: string;
   private readonly writeMutex = new OperationMutex();
 
@@ -790,8 +789,8 @@ export class VestigeDatabase {
     }
 
     // Check WAL mode
-    const journalMode = this.db.pragma('journal_mode', { simple: true }) as string;
-    const walMode = journalMode.toLowerCase() === 'wal';
+    const journalModeResult = this.db.query('PRAGMA journal_mode').get() as { journal_mode: string } | null;
+    const walMode = journalModeResult?.journal_mode?.toLowerCase() === 'wal';
     if (!walMode) {
       if (status === 'healthy') status = 'warning';
       warnings.push('WAL mode is not enabled - concurrent performance may be degraded');
@@ -800,8 +799,8 @@ export class VestigeDatabase {
     // Quick integrity check (just checks header, not full scan)
     let integrityCheck = true;
     try {
-      const result = this.db.pragma('quick_check', { simple: true }) as string;
-      integrityCheck = result === 'ok';
+      const result = this.db.query('PRAGMA quick_check').get() as { quick_check: string } | null;
+      integrityCheck = result?.quick_check === 'ok';
       if (!integrityCheck) {
         status = 'critical';
         warnings.push('Database integrity check failed');
@@ -815,7 +814,7 @@ export class VestigeDatabase {
     // Get last backup time
     let lastBackup: string | null = null;
     try {
-      const row = this.db.prepare('SELECT value FROM vestige_metadata WHERE key = ?').get('last_backup') as { value: string } | undefined;
+      const row = this.db.query('SELECT value FROM vestige_metadata WHERE key = ?').get('last_backup') as { value: string } | undefined;
       lastBackup = row?.value || null;
 
       // Warn if no backup in 7 days
@@ -910,7 +909,7 @@ export class VestigeDatabase {
     }
 
     // Checkpoint WAL to ensure all data is in main file
-    this.db.pragma('wal_checkpoint(TRUNCATE)');
+    this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
 
     // Ensure backup directory exists
     const backupDir = path.dirname(backupPath);
@@ -930,7 +929,7 @@ export class VestigeDatabase {
 
     // Update metadata
     const now = new Date().toISOString();
-    this.db.prepare(`
+    this.db.query(`
       INSERT OR REPLACE INTO vestige_metadata (key, value, updated_at)
       VALUES (?, ?, ?)
     `).run('last_backup', now, now);
@@ -1031,7 +1030,7 @@ export class VestigeDatabase {
       this.db = initializeDatabase(this.dbPath);
 
       // Verify the restored database has the expected schema
-      const tables = this.db.prepare(
+      const tables = this.db.query(
         "SELECT name FROM sqlite_master WHERE type='table'"
       ).all() as { name: string }[];
       const tableNames = tables.map(t => t.name);
@@ -1107,7 +1106,7 @@ export class VestigeDatabase {
       const id = nanoid();
       const now = new Date().toISOString();
 
-      const stmt = this.db.prepare(`
+      const stmt = this.db.query(`
         INSERT INTO knowledge_nodes (
           id, content, summary,
           created_at, updated_at, last_accessed_at, access_count,
@@ -1166,7 +1165,7 @@ export class VestigeDatabase {
 
   getNode(id: string): KnowledgeNode | null {
     try {
-      const stmt = this.db.prepare('SELECT * FROM knowledge_nodes WHERE id = ?');
+      const stmt = this.db.query('SELECT * FROM knowledge_nodes WHERE id = ?');
       const row = stmt.get(id) as Record<string, unknown> | undefined;
       if (!row) return null;
       return this.rowToNode(row);
@@ -1184,7 +1183,7 @@ export class VestigeDatabase {
       // Dual-Strength Memory Model (Bjork & Bjork, 1992):
       // - Storage strength increases with each exposure (never decreases)
       // - Retrieval strength resets to 1.0 on access (we just retrieved it successfully)
-      const stmt = this.db.prepare(`
+      const stmt = this.db.query(`
         UPDATE knowledge_nodes
         SET last_accessed_at = ?,
             access_count = access_count + 1,
@@ -1261,7 +1260,7 @@ export class VestigeDatabase {
       const nextReview = new Date();
       nextReview.setDate(nextReview.getDate() + daysUntilReview);
 
-      const stmt = this.db.prepare(`
+      const stmt = this.db.query(`
         UPDATE knowledge_nodes
         SET retention_strength = ?,
             stability_factor = ?,
@@ -1319,7 +1318,7 @@ export class VestigeDatabase {
       const safeOffset = Math.max(0, offset);
 
       // Get total count
-      const countStmt = this.db.prepare(`
+      const countStmt = this.db.query(`
         SELECT COUNT(*) as total FROM knowledge_nodes kn
         JOIN knowledge_fts fts ON kn.id = fts.id
         WHERE knowledge_fts MATCH ?
@@ -1328,7 +1327,7 @@ export class VestigeDatabase {
       const total = countResult.total;
 
       // Get paginated results
-      const stmt = this.db.prepare(`
+      const stmt = this.db.query(`
         SELECT kn.* FROM knowledge_nodes kn
         JOIN knowledge_fts fts ON kn.id = fts.id
         WHERE knowledge_fts MATCH ?
@@ -1360,11 +1359,11 @@ export class VestigeDatabase {
       const safeLimit = Math.min(limit, MAX_LIMIT);
 
       // Get total count
-      const countResult = this.db.prepare('SELECT COUNT(*) as total FROM knowledge_nodes').get() as { total: number };
+      const countResult = this.db.query('SELECT COUNT(*) as total FROM knowledge_nodes').get() as { total: number };
       const total = countResult.total;
 
       // Get paginated results
-      const stmt = this.db.prepare(`
+      const stmt = this.db.query(`
         SELECT * FROM knowledge_nodes
         ORDER BY created_at DESC
         LIMIT ? OFFSET ?
@@ -1394,7 +1393,7 @@ export class VestigeDatabase {
       const safeLimit = Math.min(limit, MAX_LIMIT);
 
       // Get total count
-      const countStmt = this.db.prepare(`
+      const countStmt = this.db.query(`
         SELECT COUNT(*) as total FROM knowledge_nodes
         WHERE retention_strength < ?
       `);
@@ -1402,7 +1401,7 @@ export class VestigeDatabase {
       const total = countResult.total;
 
       // Get paginated results
-      const stmt = this.db.prepare(`
+      const stmt = this.db.query(`
         SELECT * FROM knowledge_nodes
         WHERE retention_strength < ?
         ORDER BY retention_strength ASC
@@ -1429,7 +1428,7 @@ export class VestigeDatabase {
 
   getNodeCount(): number {
     try {
-      const stmt = this.db.prepare('SELECT COUNT(*) as count FROM knowledge_nodes');
+      const stmt = this.db.query('SELECT COUNT(*) as count FROM knowledge_nodes');
       const result = stmt.get() as { count: number };
       return result.count;
     } catch (error) {
@@ -1446,7 +1445,7 @@ export class VestigeDatabase {
    */
   deleteNode(id: string): boolean {
     try {
-      const stmt = this.db.prepare('DELETE FROM knowledge_nodes WHERE id = ?');
+      const stmt = this.db.query('DELETE FROM knowledge_nodes WHERE id = ?');
       const result = stmt.run(id);
       return result.changes > 0;
     } catch (error) {
@@ -1478,7 +1477,7 @@ export class VestigeDatabase {
       const id = nanoid();
       const now = new Date().toISOString();
 
-      const stmt = this.db.prepare(`
+      const stmt = this.db.query(`
         INSERT INTO people (
           id, name, aliases,
           how_we_met, relationship_type, organization, role, location,
@@ -1514,7 +1513,7 @@ export class VestigeDatabase {
 
   getPerson(id: string): PersonNode | null {
     try {
-      const stmt = this.db.prepare('SELECT * FROM people WHERE id = ?');
+      const stmt = this.db.query('SELECT * FROM people WHERE id = ?');
       const row = stmt.get(id) as Record<string, unknown> | undefined;
       if (!row) return null;
       return this.rowToPerson(row);
@@ -1540,7 +1539,7 @@ export class VestigeDatabase {
         .replace(/_/g, '\\_')    // Escape underscore
         .replace(/"/g, '\\"');   // Escape quotes for JSON match
 
-      const stmt = this.db.prepare(`
+      const stmt = this.db.query(`
         SELECT * FROM people
         WHERE name = ? OR aliases LIKE ? ESCAPE '\\'
       `);
@@ -1562,11 +1561,11 @@ export class VestigeDatabase {
       const safeLimit = Math.min(limit, MAX_LIMIT);
 
       // Get total count
-      const countResult = this.db.prepare('SELECT COUNT(*) as total FROM people').get() as { total: number };
+      const countResult = this.db.query('SELECT COUNT(*) as total FROM people').get() as { total: number };
       const total = countResult.total;
 
       // Get paginated results
-      const stmt = this.db.prepare('SELECT * FROM people ORDER BY name LIMIT ? OFFSET ?');
+      const stmt = this.db.query('SELECT * FROM people ORDER BY name LIMIT ? OFFSET ?');
       const rows = stmt.all(safeLimit, offset) as Record<string, unknown>[];
       const items = rows.map(row => this.rowToPerson(row));
 
@@ -1596,7 +1595,7 @@ export class VestigeDatabase {
       const cutoffStr = cutoffDate.toISOString();
 
       // Get total count
-      const countStmt = this.db.prepare(`
+      const countStmt = this.db.query(`
         SELECT COUNT(*) as total FROM people
         WHERE last_contact_at IS NOT NULL AND last_contact_at < ?
       `);
@@ -1604,7 +1603,7 @@ export class VestigeDatabase {
       const total = countResult.total;
 
       // Get paginated results
-      const stmt = this.db.prepare(`
+      const stmt = this.db.query(`
         SELECT * FROM people
         WHERE last_contact_at IS NOT NULL
           AND last_contact_at < ?
@@ -1635,7 +1634,7 @@ export class VestigeDatabase {
    */
   updatePersonContact(id: string): void {
     try {
-      const stmt = this.db.prepare(`
+      const stmt = this.db.query(`
         UPDATE people
         SET last_contact_at = ?, updated_at = ?
         WHERE id = ?
@@ -1656,7 +1655,7 @@ export class VestigeDatabase {
    */
   deletePerson(id: string): boolean {
     try {
-      const stmt = this.db.prepare('DELETE FROM people WHERE id = ?');
+      const stmt = this.db.query('DELETE FROM people WHERE id = ?');
       const result = stmt.run(id);
       return result.changes > 0;
     } catch (error) {
@@ -1677,7 +1676,7 @@ export class VestigeDatabase {
       const id = nanoid();
       const now = new Date().toISOString();
 
-      const stmt = this.db.prepare(`
+      const stmt = this.db.query(`
         INSERT OR REPLACE INTO graph_edges (
           id, from_id, to_id, edge_type, weight, metadata, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1709,7 +1708,7 @@ export class VestigeDatabase {
         if (current.length === 0) break;
 
         const placeholders = current.map(() => '?').join(',');
-        const stmt = this.db.prepare(`
+        const stmt = this.db.query(`
           SELECT DISTINCT
             CASE WHEN from_id IN (${placeholders}) THEN to_id ELSE from_id END as related_id
           FROM graph_edges
@@ -1745,9 +1744,9 @@ export class VestigeDatabase {
 
   getStats(): { totalNodes: number; totalPeople: number; totalEdges: number } {
     try {
-      const nodeCount = this.db.prepare('SELECT COUNT(*) as c FROM knowledge_nodes').get() as { c: number };
-      const peopleCount = this.db.prepare('SELECT COUNT(*) as c FROM people').get() as { c: number };
-      const edgeCount = this.db.prepare('SELECT COUNT(*) as c FROM graph_edges').get() as { c: number };
+      const nodeCount = this.db.query('SELECT COUNT(*) as c FROM knowledge_nodes').get() as { c: number };
+      const peopleCount = this.db.query('SELECT COUNT(*) as c FROM people').get() as { c: number };
+      const edgeCount = this.db.query('SELECT COUNT(*) as c FROM graph_edges').get() as { c: number };
 
       return {
         totalNodes: nodeCount.c,
@@ -1773,7 +1772,7 @@ export class VestigeDatabase {
   optimize(): void {
     try {
       // Checkpoint WAL
-      this.db.pragma('wal_checkpoint(TRUNCATE)');
+      this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
       // Vacuum to reclaim space
       this.db.exec('VACUUM');
       // Reindex for performance
@@ -1811,11 +1810,10 @@ export class VestigeDatabase {
     try {
       const now = Date.now();
 
-      // Use IMMEDIATE transaction mode for write consistency
-      // This acquires write lock at start, preventing concurrent modifications
-      const transaction = this.db.transaction(() => {
+      // Use transaction for write consistency
+      const doDecay = this.db.transaction(() => {
         // Fetch all strength factors for each node
-        const nodes = this.db.prepare(`
+        const nodes = this.db.query(`
           SELECT id, last_accessed_at, retention_strength, stability_factor, sentiment_intensity,
                  storage_strength, retrieval_strength
           FROM knowledge_nodes
@@ -1830,7 +1828,7 @@ export class VestigeDatabase {
         }[];
 
         let updated = 0;
-        const updateStmt = this.db.prepare(`
+        const updateStmt = this.db.query(`
           UPDATE knowledge_nodes
           SET retention_strength = ?, retrieval_strength = ?
           WHERE id = ?
@@ -1888,8 +1886,8 @@ export class VestigeDatabase {
         return updated;
       });
 
-      // Execute with IMMEDIATE mode (acquires RESERVED lock immediately)
-      return transaction.immediate();
+      // Execute the transaction
+      return doDecay();
     } catch (error) {
       if (error instanceof VestigeDatabaseError) throw error;
       throw new VestigeDatabaseError(
@@ -1926,7 +1924,7 @@ export class VestigeDatabase {
       sourceId: row['source_id'] as string | undefined,
       sourceUrl: row['source_url'] as string | undefined,
       sourceChain: safeJsonParse<string[]>(row['source_chain'] as string, []),
-      gitContext: row['git_context'] ? safeJsonParse<GitContext>(row['git_context'] as string, undefined) : undefined,
+      gitContext: row['git_context'] ? safeJsonParse<GitContext | undefined>(row['git_context'] as string, undefined) : undefined,
       confidence: row['confidence'] as number,
       isContradicted: Boolean(row['is_contradicted']),
       contradictionIds: safeJsonParse<string[]>(row['contradiction_ids'] as string, []),
@@ -1966,7 +1964,7 @@ export class VestigeDatabase {
   close(): void {
     try {
       // Checkpoint WAL before closing
-      this.db.pragma('wal_checkpoint(TRUNCATE)');
+      this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
       this.db.close();
     } catch {
       // Ignore close errors

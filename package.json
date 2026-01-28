@@ -2,6 +2,9 @@
   "name": "vestige",
   "version": "1.0.0",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "description": "Cognitive memory for AI - MCP server with FSRS-6 spaced repetition",
   "author": "Sam Valladares",
   "license": "MIT OR Apache-2.0",

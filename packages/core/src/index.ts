@@ -33,6 +33,22 @@ import {
 } from './services/CacheService.js';
 import { logger, mcpLogger } from './utils/logger.js';
 
+// MCP Tools imports
+import {
+  CodebaseInputSchema,
+  executeCodebase,
+  IntentionInputSchema,
+  executeIntention,
+  PromoteMemoryInputSchema,
+  DemoteMemoryInputSchema,
+  RequestFeedbackInputSchema,
+  executePromoteMemory,
+  executeDemoteMemory,
+  executeRequestFeedback,
+  SmartIngestInputSchema,
+  executeSmartIngest,
+} from './mcp/tools/index.js';
+
 // ============================================================================
 // VESTIGE MCP SERVER
 // ============================================================================
@@ -1237,6 +1253,104 @@ server.tool(
         nodesUpdated: updatedCount,
         message: `Applied decay to ${updatedCount} knowledge nodes`,
       });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+// --- CODEBASE TOOL ---
+
+server.tool(
+  'codebase',
+  'Unified codebase knowledge tool. Remember code patterns, architectural decisions, and retrieve codebase context.',
+  CodebaseInputSchema.shape,
+  async (args) => {
+    try {
+      const input = CodebaseInputSchema.parse(args);
+      const result = await executeCodebase(db, input);
+      return safeResponse(result);
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+// --- INTENTION TOOL ---
+
+server.tool(
+  'intention',
+  'Unified intention management tool. Supports setting, checking, updating (complete/snooze/cancel), and listing intentions.',
+  IntentionInputSchema.shape,
+  async (args) => {
+    try {
+      const input = IntentionInputSchema.parse(args);
+      const result = await executeIntention(db, input);
+      return safeResponse(result);
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+// --- FEEDBACK TOOLS ---
+
+server.tool(
+  'promote_memory',
+  'Promote a memory (thumbs up) - it led to a good outcome. Memory will surface more often in searches.',
+  PromoteMemoryInputSchema.shape,
+  async (args) => {
+    try {
+      const input = PromoteMemoryInputSchema.parse(args);
+      const result = await executePromoteMemory(db, input);
+      return safeResponse(result);
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+server.tool(
+  'demote_memory',
+  'Demote a memory (thumbs down) - it led to a bad outcome. Better alternatives will surface instead.',
+  DemoteMemoryInputSchema.shape,
+  async (args) => {
+    try {
+      const input = DemoteMemoryInputSchema.parse(args);
+      const result = await executeDemoteMemory(db, input);
+      return safeResponse(result);
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+server.tool(
+  'request_feedback',
+  "Request feedback from the user about a memory's usefulness. Returns a structured prompt for Claude to ask the user.",
+  RequestFeedbackInputSchema.shape,
+  async (args) => {
+    try {
+      const input = RequestFeedbackInputSchema.parse(args);
+      const result = await executeRequestFeedback(db, input);
+      return safeResponse(result);
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+// --- SMART INGEST TOOL ---
+
+server.tool(
+  'smart_ingest',
+  'Intelligent memory ingestion. Automatically decides whether to create, update, or supersede memories based on semantic similarity.',
+  SmartIngestInputSchema.shape,
+  async (args) => {
+    try {
+      const input = SmartIngestInputSchema.parse(args);
+      const result = await executeSmartIngest(db, input, embeddingService, vectorStore);
+      return safeResponse(result);
     } catch (error) {
       return errorResponse(error);
     }

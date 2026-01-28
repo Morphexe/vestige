@@ -1,0 +1,56 @@
+{
+  "name": "@vestige/agent-memory",
+  "version": "0.1.0",
+  "description": "Supabase adapter with RLS multi-tenancy for Vestige cognitive memory",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./supabase": {
+      "types": "./dist/supabase-adapter.d.ts",
+      "import": "./dist/supabase-adapter.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src/schema.sql",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "vestige",
+    "supabase",
+    "rls",
+    "multi-tenancy",
+    "agent-memory",
+    "postgresql"
+  ],
+  "author": "samvallad33",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.5",
+    "@types/node": "^20.14.0",
+    "tsup": "^8.1.0",
+    "typescript": "^5.4.5"
+  },
+  "peerDependencies": {
+    "@vestige/core": ">=0.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@vestige/core": {
+      "optional": true
+    }
+  }
+}

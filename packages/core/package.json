@@ -17,8 +17,21 @@
     "./database": {
       "types": "./dist/core/database.d.ts",
       "import": "./dist/core/database.js"
+    },
+    "./adapters": {
+      "import": "./dist/adapters/index.js"
+    },
+    "./adapters/turso": {
+      "import": "./dist/adapters/turso-adapter.js"
+    },
+    "./adapters/http": {
+      "import": "./dist/adapters/http-server.js"
     }
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "bin": {
     "vestige": "./dist/cli.js"
   },
@@ -27,7 +40,7 @@
     "dev": "tsup --watch",
     "start": "node dist/index.js",
     "inspect": "npx @anthropic-ai/mcp-inspector node dist/index.js",
-    "test": "rstest",
+    "test": "bun test",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit"
   },
@@ -45,11 +58,10 @@
   "author": "samvallad33",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "better-sqlite3": "^11.0.0",
+    "@modelcontextprotocol/sdk": "^1.25.0",
     "chokidar": "^3.6.0",
     "chromadb": "^1.9.0",
-    "date-fns": "^3.6.0",
+    "date-fns": "^4.0.0",
     "glob": "^10.4.0",
     "gray-matter": "^4.0.3",
     "marked": "^12.0.0",
@@ -58,15 +70,24 @@
     "node-cron": "^3.0.3",
     "ollama": "^0.5.0",
     "p-limit": "^6.0.0",
-    "zod": "^3.23.0"
+    "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@rstest/core": "^0.8.0",
-    "@types/better-sqlite3": "^7.6.10",
+    "@libsql/client": "^0.14.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/bun": "^1.2.5",
     "@types/node": "^20.14.0",
     "@types/node-cron": "^3.0.11",
     "tsup": "^8.1.0",
     "typescript": "^5.4.5"
+  },
+  "peerDependencies": {
+    "@libsql/client": ">=0.5.0"
+  },
+  "peerDependenciesMeta": {
+    "@libsql/client": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=20.0.0"

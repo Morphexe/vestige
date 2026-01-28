@@ -8,7 +8,7 @@
  * - Edge cases and error handling
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@rstest/core';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import { VestigeDatabase } from '../../core/database.js';
 import type { KnowledgeNode, PersonNode } from '../../core/types.js';
 
@@ -1328,6 +1328,407 @@ describe('MCP Tools Integration', () => {
       // Review count should be 5
       const node = db.getNode(ingestResult.nodeId);
       expect(node?.reviewCount).toBe(5);
+    });
+  });
+});
+
+// ============================================================================
+// PHASE 6 NEW TOOLS - Integration Tests
+// ============================================================================
+
+import {
+  executeCodebase,
+  executeIntention,
+  executePromoteMemory,
+  executeDemoteMemory,
+  executeRequestFeedback,
+  executeSmartIngest,
+  type CodebaseInput,
+  type IntentionInput,
+} from '../../mcp/tools/index.js';
+
+describe('Phase 6 MCP Tools Integration', () => {
+  let db: VestigeDatabase;
+
+  beforeAll(() => {
+    db = createTestDatabase();
+  });
+
+  afterAll(() => {
+    db.close();
+  });
+
+  // ==========================================================================
+  // Codebase Tool Integration Tests
+  // ==========================================================================
+  describe('codebase tool', () => {
+    it('should remember a pattern and retrieve it via get_context', async () => {
+      // Remember a pattern
+      const patternResult = await executeCodebase(db, {
+        action: 'remember_pattern',
+        name: 'Repository Pattern',
+        description: 'Use repository pattern for data access layer separation',
+        files: ['src/repos/user.ts', 'src/repos/order.ts'],
+        codebase: 'test-project',
+        limit: 10,
+      } as CodebaseInput);
+
+      expect(patternResult.success).toBe(true);
+      expect(patternResult.nodeId).toBeDefined();
+      expect(patternResult.patternName).toBe('Repository Pattern');
+
+      // Retrieve context
+      const contextResult = await executeCodebase(db, {
+        action: 'get_context',
+        codebase: 'test-project',
+        limit: 10,
+      } as CodebaseInput);
+
+      expect(contextResult.success).toBe(true);
+      expect(contextResult.patterns?.count).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should remember an architectural decision', async () => {
+      const result = await executeCodebase(db, {
+        action: 'remember_decision',
+        decision: 'Use Event Sourcing for audit trail',
+        rationale: 'Need complete audit trail and ability to replay state',
+        alternatives: ['CRUD with audit log', 'Change data capture'],
+        files: ['src/events/', 'src/aggregates/'],
+        codebase: 'test-project',
+        limit: 10,
+      } as CodebaseInput);
+
+      expect(result.success).toBe(true);
+      expect(result.action).toBe('remember_decision');
+      expect(result.nodeId).toBeDefined();
+    });
+
+    it('should retrieve both patterns and decisions with get_context', async () => {
+      // Add more data
+      await executeCodebase(db, {
+        action: 'remember_pattern',
+        name: 'Factory Pattern',
+        description: 'Use factories for object creation',
+        codebase: 'integration-test',
+        limit: 10,
+      } as CodebaseInput);
+
+      await executeCodebase(db, {
+        action: 'remember_decision',
+        decision: 'Use TypeScript strict mode',
+        rationale: 'Better type safety and error detection',
+        codebase: 'integration-test',
+        limit: 10,
+      } as CodebaseInput);
+
+      const result = await executeCodebase(db, {
+        action: 'get_context',
+        codebase: 'integration-test',
+        limit: 10,
+      } as CodebaseInput);
+
+      expect(result.success).toBe(true);
+      expect(result.patterns).toBeDefined();
+      expect(result.decisions).toBeDefined();
+    });
+  });
+
+  // ==========================================================================
+  // Intention Tool Integration Tests
+  // ==========================================================================
+  describe('intention tool', () => {
+    it('should set and list intentions', async () => {
+      // Set an intention
+      const setResult = await executeIntention(db, {
+        action: 'set',
+        description: 'Review code before deployment',
+        priority: 'high',
+        snoozeMinutes: 30,
+        filterStatus: 'active',
+        limit: 20,
+        includeSnoozed: false,
+      } as IntentionInput);
+
+      expect((setResult as { success: boolean }).success).toBe(true);
+      expect((setResult as { intentionId: string }).intentionId).toBeDefined();
+
+      // List intentions
+      const listResult = await executeIntention(db, {
+        action: 'list',
+        filterStatus: 'active',
+        limit: 20,
+        priority: 'normal',
+        snoozeMinutes: 30,
+        includeSnoozed: false,
+      } as IntentionInput);
+
+      expect((listResult as { intentions: unknown[] }).intentions.length).toBeGreaterThan(0);
+    });
+
+    it('should complete an intention', async () => {
+      // Create intention
+      const setResult = await executeIntention(db, {
+        action: 'set',
+        description: 'Task to complete',
+        priority: 'normal',
+        snoozeMinutes: 30,
+        filterStatus: 'active',
+        limit: 20,
+        includeSnoozed: false,
+      } as IntentionInput);
+
+      const intentionId = (setResult as { intentionId: string }).intentionId;
+
+      // Complete it
+      const completeResult = await executeIntention(db, {
+        action: 'update',
+        id: intentionId,
+        status: 'complete',
+        priority: 'normal',
+        snoozeMinutes: 30,
+        filterStatus: 'active',
+        limit: 20,
+        includeSnoozed: false,
+      } as IntentionInput);
+
+      expect((completeResult as { success: boolean }).success).toBe(true);
+      expect((completeResult as { status: string }).status).toBe('complete');
+    });
+
+    it('should check for triggered intentions', async () => {
+      // Create a time-based intention that's already past
+      const pastTime = new Date(Date.now() - 3600000).toISOString();
+      await executeIntention(db, {
+        action: 'set',
+        description: 'Overdue task',
+        trigger: { type: 'time', at: pastTime },
+        priority: 'normal',
+        snoozeMinutes: 30,
+        filterStatus: 'active',
+        limit: 20,
+        includeSnoozed: false,
+      } as IntentionInput);
+
+      const checkResult = await executeIntention(db, {
+        action: 'check',
+        priority: 'normal',
+        snoozeMinutes: 30,
+        filterStatus: 'active',
+        limit: 20,
+        includeSnoozed: false,
+      } as IntentionInput);
+
+      expect((checkResult as { triggered: unknown[] }).triggered.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ==========================================================================
+  // Feedback Tools Integration Tests
+  // ==========================================================================
+  describe('feedback tools', () => {
+    it('should promote a memory and increase retention', async () => {
+      // Create a node
+      const node = db.insertNode({
+        content: 'Memory to promote',
+        sourceType: 'note',
+        sourcePlatform: 'manual',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lastAccessedAt: new Date(),
+        accessCount: 0,
+        retentionStrength: 0.5,
+        reviewCount: 0,
+        confidence: 0.8,
+        isContradicted: false,
+        contradictionIds: [],
+        people: [],
+        concepts: [],
+        events: [],
+        tags: [],
+        sourceChain: [],
+      });
+
+      const result = await executePromoteMemory(db, { id: node.id });
+
+      expect(result.success).toBe(true);
+      expect(result.changes.retentionStrength.after).toBeGreaterThan(result.changes.retentionStrength.before);
+    });
+
+    it('should demote a memory and decrease retention', async () => {
+      // Create a node
+      const node = db.insertNode({
+        content: 'Memory to demote',
+        sourceType: 'note',
+        sourcePlatform: 'manual',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lastAccessedAt: new Date(),
+        accessCount: 0,
+        retentionStrength: 0.7,
+        reviewCount: 0,
+        confidence: 0.8,
+        isContradicted: false,
+        contradictionIds: [],
+        people: [],
+        concepts: [],
+        events: [],
+        tags: [],
+        sourceChain: [],
+      });
+
+      const result = await executeDemoteMemory(db, { id: node.id, reason: 'Outdated information' });
+
+      expect(result.success).toBe(true);
+      expect(result.changes.retentionStrength.after).toBeLessThan(result.changes.retentionStrength.before);
+      expect(result.reason).toBe('Outdated information');
+    });
+
+    it('should request feedback with options', async () => {
+      const node = db.insertNode({
+        content: 'Memory for feedback request',
+        sourceType: 'note',
+        sourcePlatform: 'manual',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lastAccessedAt: new Date(),
+        accessCount: 0,
+        retentionStrength: 0.5,
+        reviewCount: 0,
+        confidence: 0.8,
+        isContradicted: false,
+        contradictionIds: [],
+        people: [],
+        concepts: [],
+        events: [],
+        tags: [],
+        sourceChain: [],
+      });
+
+      const result = await executeRequestFeedback(db, { id: node.id, context: 'debugging advice' });
+
+      expect(result.action).toBe('request_feedback');
+      expect(result.options).toHaveLength(3);
+      expect(result.options.map(o => o.action)).toContain('promote');
+      expect(result.options.map(o => o.action)).toContain('demote');
+      expect(result.context).toBe('debugging advice');
+    });
+  });
+
+  // ==========================================================================
+  // Smart Ingest Tool Integration Tests
+  // ==========================================================================
+  describe('smart_ingest tool', () => {
+    it('should create a new memory without embeddings', async () => {
+      const result = await executeSmartIngest(db, {
+        content: 'New fact to remember via smart ingest',
+        nodeType: 'fact',
+        tags: ['smart-ingest', 'test'],
+        forceCreate: false,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.decision).toBe('create');
+      expect(result.nodeId).toBeDefined();
+    });
+
+    it('should force create even with similar content', async () => {
+      // Create first memory
+      await executeSmartIngest(db, {
+        content: 'TypeScript is great for type safety',
+        nodeType: 'fact',
+        forceCreate: false,
+      });
+
+      // Force create similar content
+      const result = await executeSmartIngest(db, {
+        content: 'TypeScript is great for type safety',
+        forceCreate: true,
+        nodeType: 'fact',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.decision).toBe('create');
+      expect(result.reason).toContain('Forced creation');
+    });
+
+    it('should store tags correctly', async () => {
+      const result = await executeSmartIngest(db, {
+        content: 'Memory with tags via smart ingest',
+        tags: ['tag1', 'tag2', 'tag3'],
+        nodeType: 'fact',
+        forceCreate: false,
+      });
+
+      expect(result.success).toBe(true);
+
+      const node = db.getNode(result.nodeId);
+      expect(node?.tags).toContain('tag1');
+      expect(node?.tags).toContain('tag2');
+      expect(node?.tags).toContain('tag3');
+    });
+
+    it('should set source platform correctly', async () => {
+      const result = await executeSmartIngest(db, {
+        content: 'Memory from Wikipedia',
+        source: 'wikipedia',
+        nodeType: 'fact',
+        forceCreate: false,
+      });
+
+      expect(result.success).toBe(true);
+
+      const node = db.getNode(result.nodeId);
+      expect(node?.sourcePlatform).toBe('wikipedia');
+    });
+  });
+
+  // ==========================================================================
+  // Cross-Tool Integration Tests
+  // ==========================================================================
+  describe('cross-tool integration', () => {
+    it('should use smart_ingest then promote the memory', async () => {
+      // Ingest via smart_ingest
+      const ingestResult = await executeSmartIngest(db, {
+        content: 'Important fact that will be promoted',
+        nodeType: 'fact',
+        forceCreate: false,
+      });
+
+      expect(ingestResult.success).toBe(true);
+
+      // Promote the memory
+      const promoteResult = await executePromoteMemory(db, { id: ingestResult.nodeId });
+
+      expect(promoteResult.success).toBe(true);
+      expect(promoteResult.changes.retentionStrength.after).toBe(1.0);
+    });
+
+    it('should remember a pattern then set intention to use it', async () => {
+      // Remember a pattern
+      const patternResult = await executeCodebase(db, {
+        action: 'remember_pattern',
+        name: 'Singleton Pattern',
+        description: 'Use singleton for configuration managers',
+        codebase: 'cross-tool-test',
+        limit: 10,
+      } as CodebaseInput);
+
+      expect(patternResult.success).toBe(true);
+
+      // Set intention to apply the pattern
+      const intentionResult = await executeIntention(db, {
+        action: 'set',
+        description: 'Apply Singleton Pattern to ConfigManager',
+        trigger: { type: 'context', codebase: 'cross-tool-test' },
+        priority: 'normal',
+        snoozeMinutes: 30,
+        filterStatus: 'active',
+        limit: 20,
+        includeSnoozed: false,
+      } as IntentionInput);
+
+      expect((intentionResult as { success: boolean }).success).toBe(true);
     });
   });
 });
