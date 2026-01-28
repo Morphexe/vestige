@@ -122,3 +122,4 @@ credentials.json
 # =============================================================================
 **/.fastembed_cache/
 .fastembed_cache/
+.npmrc
