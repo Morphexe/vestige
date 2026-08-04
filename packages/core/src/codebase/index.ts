@@ -63,9 +63,13 @@ export {
   type GitContextInfo,
   type WorkingContext,
   type FileContext,
+  type ContextCaptureOptions,
   // Classes
   ContextCapture,
 } from './context.js';
+
+// Detection types (type-only exports for no bundle cost)
+export type { DetectionStrategy, DetectionResult } from './detection/types.js';
 
 // Patterns
 export {

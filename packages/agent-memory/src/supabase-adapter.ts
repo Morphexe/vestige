@@ -289,6 +289,71 @@ export class SupabaseAdapter implements DatabaseAdapter {
   getClient(): SupabaseClient<any, any, any> {
     return this.client;
   }
+
+  // ===========================================================================
+  // VECTOR OPERATIONS (pgvector)
+  // ===========================================================================
+
+  /**
+   * Store an embedding vector for a knowledge node
+   *
+   * @param id - The knowledge node ID
+   * @param embedding - The embedding vector (1536 dimensions for OpenAI)
+   */
+  async storeEmbedding(id: string, embedding: number[]): Promise<void> {
+    if (this.closed) {
+      throw new Error('Connection closed');
+    }
+
+    const { error } = await this.client.rpc('vestige_upsert_embedding', {
+      knowledge_id: id,
+      embedding_vector: `[${embedding.join(',')}]`,
+    });
+
+    if (error) {
+      throw new Error(`Failed to store embedding: ${error.message}`);
+    }
+  }
+
+  /**
+   * Search for similar knowledge nodes using vector similarity
+   *
+   * @param embedding - Query embedding vector
+   * @param limit - Maximum number of results (default: 10)
+   * @param threshold - Minimum similarity threshold (default: 0.7)
+   * @returns Array of similar nodes with similarity scores
+   */
+  async searchByVector(
+    embedding: number[],
+    limit: number = 10,
+    threshold: number = 0.7
+  ): Promise<VectorSearchResult[]> {
+    if (this.closed) {
+      throw new Error('Connection closed');
+    }
+
+    const { data, error } = await this.client.rpc('vestige_search_similar', {
+      query_embedding: `[${embedding.join(',')}]`,
+      match_threshold: threshold,
+      match_count: limit,
+    });
+
+    if (error) {
+      throw new Error(`Vector search failed: ${error.message}`);
+    }
+
+    return (data ?? []) as VectorSearchResult[];
+  }
+}
+
+/**
+ * Result from vector similarity search
+ */
+export interface VectorSearchResult {
+  id: string;
+  content: string;
+  summary: string | null;
+  similarity: number;
 }
 
 // =============================================================================

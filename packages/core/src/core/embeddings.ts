@@ -91,12 +91,18 @@ export interface EmbeddingService {
  * Configuration options for embedding services.
  */
 export interface EmbeddingServiceConfig {
+  /** Provider to use: 'ollama', 'openai', or 'fallback' */
+  provider?: 'ollama' | 'openai' | 'fallback';
   /** Ollama host URL (default: http://localhost:11434) */
   host?: string;
-  /** Embedding model to use (default: nomic-embed-text) */
+  /** Embedding model to use (default varies by provider) */
   model?: string;
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number;
+  /** OpenAI API key (required when provider is 'openai') */
+  openaiApiKey?: string;
+  /** OpenAI base URL (optional, for proxies/custom endpoints) */
+  openaiBaseUrl?: string;
 }
 
 /**
@@ -650,15 +656,25 @@ export function getEmbeddingService(config?: EmbeddingServiceConfig): EmbeddingS
 /**
  * Create an embedding service with automatic fallback.
  *
- * Attempts to use Ollama with nomic-embed-text for high-quality semantic
- * embeddings. Falls back to TF-IDF based keyword similarity if Ollama
- * is not available.
+ * Supports multiple providers:
+ * - 'openai': Uses OpenAI's text-embedding-3-small (requires API key)
+ * - 'ollama': Uses Ollama with nomic-embed-text (requires local Ollama)
+ * - 'fallback': TF-IDF based keyword similarity (no dependencies)
  *
- * @param config - Optional configuration for the Ollama service
+ * If no provider is specified, attempts Ollama first, then falls back.
+ *
+ * @param config - Optional configuration for the embedding service
  * @returns A promise resolving to an EmbeddingService instance
  *
  * @example
  * ```typescript
+ * // Use OpenAI
+ * const embeddings = await createEmbeddingService({
+ *   provider: 'openai',
+ *   openaiApiKey: process.env.OPENAI_API_KEY,
+ * });
+ *
+ * // Use Ollama (default)
  * const embeddings = await createEmbeddingService();
  *
  * const vec1 = await embeddings.generateEmbedding("TypeScript is great");
@@ -671,6 +687,39 @@ export function getEmbeddingService(config?: EmbeddingServiceConfig): EmbeddingS
 export async function createEmbeddingService(
   config?: EmbeddingServiceConfig
 ): Promise<EmbeddingService> {
+  const provider = config?.provider || 'ollama';
+
+  // OpenAI provider
+  if (provider === 'openai') {
+    if (!config?.openaiApiKey) {
+      throw new Error('OpenAI API key is required when using OpenAI provider');
+    }
+
+    // Dynamically import to avoid bundling OpenAI when not used
+    const { OpenAIEmbeddingService } = await import('../adapters/openai-embeddings.js');
+    const openai = new OpenAIEmbeddingService({
+      apiKey: config.openaiApiKey,
+      model: (config.model as 'text-embedding-3-small' | 'text-embedding-3-large' | 'text-embedding-ada-002') ?? 'text-embedding-3-small',
+      timeout: config.timeout,
+      baseUrl: config.openaiBaseUrl,
+    });
+
+    if (await openai.isAvailable()) {
+      console.log(`Using OpenAI embedding service with model: ${config.model || 'text-embedding-3-small'}`);
+      return openai;
+    }
+
+    console.warn('OpenAI API not available, falling back to keyword similarity');
+    return new FallbackEmbeddingService();
+  }
+
+  // Fallback provider (explicit)
+  if (provider === 'fallback') {
+    console.log('Using fallback keyword similarity embedding service');
+    return new FallbackEmbeddingService();
+  }
+
+  // Ollama provider (default)
   const ollama = new OllamaEmbeddingService(config);
 
   if (await ollama.isAvailable()) {

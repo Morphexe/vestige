@@ -1,24 +1,79 @@
-/**
- * PostgreSQL Schema for Vestige
- *
- * This schema is designed for Supabase with Row Level Security (RLS)
- * for multi-tenant agent isolation.
- *
- * Key differences from SQLite schema:
- * - Uses TIMESTAMPTZ instead of TEXT for dates
- * - Uses JSONB instead of TEXT for JSON arrays
- * - Uses tsvector for full-text search instead of FTS5
- * - Includes agent_id column and RLS policies for tenant isolation
- * - Table names prefixed with vestige_ to avoid conflicts
- */
+// src/supabase-adapter.ts
+import { createClient } from "@supabase/supabase-js";
 
-export const POSTGRES_SCHEMA = `
--- =============================================================================
--- PGVECTOR EXTENSION FOR SEMANTIC SEARCH
--- =============================================================================
+// src/sql-converter.ts
+var TABLE_MAPPINGS = {
+  knowledge_nodes: "vestige_knowledge",
+  people: "vestige_people",
+  graph_edges: "vestige_edges",
+  intentions: "vestige_intentions",
+  vestige_metadata: "vestige_metadata"
+};
+function convertSql(sql, params) {
+  const safeParams = params ?? [];
+  if (!sql || sql.trim() === "") {
+    return { sql, params: safeParams };
+  }
+  let converted = sql;
+  for (const [sqliteTable, postgresTable] of Object.entries(TABLE_MAPPINGS)) {
+    const tablePattern = new RegExp(
+      `(?<![a-zA-Z0-9_])${sqliteTable}(?![a-zA-Z0-9_])`,
+      "g"
+    );
+    converted = converted.replace(tablePattern, postgresTable);
+  }
+  converted = converted.replace(
+    /datetime\s*\(\s*'now'\s*\)/gi,
+    "CURRENT_TIMESTAMP"
+  );
+  converted = converted.replace(
+    /datetime\s*\(\s*'now'\s*,\s*'\+(\d+)\s*(days?|hours?|minutes?)'\s*\)/gi,
+    (_, num, unit) => `CURRENT_TIMESTAMP + INTERVAL '${num} ${unit}'`
+  );
+  converted = converted.replace(
+    /datetime\s*\(\s*'now'\s*,\s*'-(\d+)\s*(days?|hours?|minutes?)'\s*\)/gi,
+    (_, num, unit) => `CURRENT_TIMESTAMP - INTERVAL '${num} ${unit}'`
+  );
+  converted = converted.replace(
+    /json_extract\s*\(\s*(\w+)\s*,\s*'\$\.([^']+)'\s*\)/gi,
+    (_, column, path) => {
+      const parts = path.split(".");
+      if (parts.length === 1) {
+        return `${column}->>'${parts[0]}'`;
+      }
+      const intermediate = parts.slice(0, -1).map((p) => `'${p}'`).join("->");
+      const final = parts[parts.length - 1];
+      return `${column}->${intermediate}->>'${final}'`;
+    }
+  );
+  converted = converted.replace(
+    /\bJOIN\s+knowledge_fts\s+\w+\s+ON\s+[^W]+/gi,
+    " "
+  );
+  converted = converted.replace(
+    /knowledge_fts\s+MATCH\s+\?/gi,
+    "search_vector @@ plainto_tsquery(?)"
+  );
+  converted = converted.replace(
+    /WHERE\s+knowledge_fts\s+MATCH/gi,
+    "WHERE search_vector @@"
+  );
+  let paramIndex = 0;
+  converted = converted.replace(/\?/g, () => `$${++paramIndex}`);
+  converted = converted.replace(/\s{2,}/g, " ");
+  return { sql: converted, params: safeParams };
+}
+function isReadOnlyQuery(sql) {
+  const trimmed = sql.trim().toUpperCase();
+  return trimmed.startsWith("SELECT") || trimmed.startsWith("WITH") || trimmed.startsWith("EXPLAIN");
+}
+function extractTableName(sql) {
+  const match = sql.match(/(?:FROM|INTO|UPDATE)\s+(\w+)/i);
+  return match ? match[1] : null;
+}
 
-CREATE EXTENSION IF NOT EXISTS vector;
-
+// src/schema.ts
+var POSTGRES_SCHEMA = `
 -- =============================================================================
 -- VESTIGE KNOWLEDGE TABLE
 -- =============================================================================
@@ -78,10 +133,7 @@ CREATE TABLE IF NOT EXISTS vestige_knowledge (
   search_vector TSVECTOR GENERATED ALWAYS AS (
     setweight(to_tsvector('english', coalesce(content, '')), 'A') ||
     setweight(to_tsvector('english', coalesce(summary, '')), 'B')
-  ) STORED,
-
-  -- Vector embedding for semantic search (1536 dims for OpenAI text-embedding-3-small)
-  embedding vector(1536)
+  ) STORED
 );
 
 -- Indexes for vestige_knowledge
@@ -94,12 +146,6 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_state ON vestige_knowledge(state);
 CREATE INDEX IF NOT EXISTS idx_knowledge_search ON vestige_knowledge USING GIN(search_vector);
 CREATE INDEX IF NOT EXISTS idx_knowledge_tags ON vestige_knowledge USING GIN(tags);
 CREATE INDEX IF NOT EXISTS idx_knowledge_concepts ON vestige_knowledge USING GIN(concepts);
-
--- Vector similarity index (ivfflat for approximate nearest neighbors)
--- Note: This index is created on existing data. For large tables, consider HNSW.
-CREATE INDEX IF NOT EXISTS idx_knowledge_embedding ON vestige_knowledge
-  USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 100);
 
 -- RLS Policy for vestige_knowledge
 ALTER TABLE vestige_knowledge ENABLE ROW LEVEL SECURITY;
@@ -272,123 +318,233 @@ $$;
 
 -- Grant execute permission to authenticated users
 GRANT EXECUTE ON FUNCTION vestige_execute TO authenticated;
-
--- =============================================================================
--- VECTOR SEARCH FUNCTION
--- =============================================================================
-
-CREATE OR REPLACE FUNCTION vestige_search_similar(
-  query_embedding vector(1536),
-  match_threshold FLOAT DEFAULT 0.7,
-  match_count INT DEFAULT 10
-)
-RETURNS TABLE (
-  id TEXT,
-  content TEXT,
-  summary TEXT,
-  similarity FLOAT
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  RETURN QUERY
-  SELECT
-    k.id,
-    k.content,
-    k.summary,
-    1 - (k.embedding <=> query_embedding) as similarity
-  FROM vestige_knowledge k
-  WHERE k.agent_id = auth.uid()
-    AND k.embedding IS NOT NULL
-    AND 1 - (k.embedding <=> query_embedding) > match_threshold
-  ORDER BY k.embedding <=> query_embedding
-  LIMIT match_count;
-END;
-$$;
-
--- Grant execute permission to authenticated users
-GRANT EXECUTE ON FUNCTION vestige_search_similar TO authenticated;
-
--- =============================================================================
--- UPSERT EMBEDDING FUNCTION
--- =============================================================================
-
-CREATE OR REPLACE FUNCTION vestige_upsert_embedding(
-  knowledge_id TEXT,
-  embedding_vector vector(1536)
-)
-RETURNS VOID
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  UPDATE vestige_knowledge
-  SET embedding = embedding_vector
-  WHERE id = knowledge_id
-    AND agent_id = auth.uid();
-END;
-$$;
-
--- Grant execute permission to authenticated users
-GRANT EXECUTE ON FUNCTION vestige_upsert_embedding TO authenticated;
 `;
-
-/**
- * Split schema into individual statements for batch execution.
- *
- * Note: This handles PostgreSQL-specific syntax like $$ function bodies
- * by tracking delimiter state.
- */
-export function getSchemaStatements(): string[] {
-  const statements: string[] = [];
-  let current = '';
+function getSchemaStatements() {
+  const statements = [];
+  let current = "";
   let inFunctionBody = false;
-
-  const lines = POSTGRES_SCHEMA.split('\n');
-
+  const lines = POSTGRES_SCHEMA.split("\n");
   for (const line of lines) {
     const trimmed = line.trim();
-
-    // Skip empty lines and comments when not in a statement
-    if (current === '' && (trimmed === '' || trimmed.startsWith('--'))) {
+    if (current === "" && (trimmed === "" || trimmed.startsWith("--"))) {
       continue;
     }
-
-    current += line + '\n';
-
-    // Track function body delimiters
-    if (trimmed.includes('$$')) {
+    current += line + "\n";
+    if (trimmed.includes("$$")) {
       const dollarCount = (trimmed.match(/\$\$/g) || []).length;
       if (dollarCount === 1) {
         inFunctionBody = !inFunctionBody;
       }
-      // If dollarCount === 2, we opened and closed in same line
     }
-
-    // Check for statement end (semicolon at end of line, not in function body)
-    if (!inFunctionBody && trimmed.endsWith(';')) {
+    if (!inFunctionBody && trimmed.endsWith(";")) {
       const statement = current.trim();
       if (statement.length > 1) {
         statements.push(statement);
       }
-      current = '';
+      current = "";
     }
   }
-
-  // Add any remaining content
   if (current.trim().length > 1) {
     statements.push(current.trim());
   }
-
   return statements;
 }
-
-/**
- * Get the schema as a single string for direct execution
- */
-export function getSchema(): string {
+function getSchema() {
   return POSTGRES_SCHEMA;
 }
+
+// src/supabase-adapter.ts
+var SupabaseAdapter = class {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client;
+  config;
+  closed = false;
+  get type() {
+    return "supabase";
+  }
+  constructor(config) {
+    this.config = config;
+    this.client = createClient(config.url, config.serviceKey, {
+      db: {
+        schema: config.schema ?? "public"
+      },
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false
+      }
+    });
+  }
+  /**
+   * Execute a SQL statement (INSERT, UPDATE, DELETE, CREATE, etc.)
+   */
+  async execute(sql, params) {
+    if (this.closed) {
+      throw new Error("Connection closed");
+    }
+    const converted = convertSql(sql, params ?? []);
+    if (this.config.debug) {
+      console.log("[SupabaseAdapter] SQL:", converted.sql);
+      console.log("[SupabaseAdapter] Params:", converted.params);
+    }
+    return this.executeRaw(converted.sql, converted.params);
+  }
+  /**
+   * Execute raw PostgreSQL SQL (after conversion)
+   * Protected to allow subclassing for testing
+   */
+  async executeRaw(sql, params) {
+    const { data, error } = await this.client.rpc("vestige_execute", {
+      query: sql,
+      params: JSON.stringify(params)
+    });
+    if (error) {
+      throw new Error(`Supabase error: ${error.message}`);
+    }
+    const rows = Array.isArray(data) ? data : data ? [data] : [];
+    return {
+      rows,
+      rowsAffected: rows.length
+    };
+  }
+  /**
+   * Execute a query and return all rows
+   */
+  async query(sql, params) {
+    const result = await this.execute(sql, params);
+    return result.rows;
+  }
+  /**
+   * Execute a query and return a single row (or null)
+   */
+  async queryOne(sql, params) {
+    const rows = await this.query(sql, params);
+    return rows[0] ?? null;
+  }
+  /**
+   * Execute multiple statements in a batch
+   */
+  async batch(statements) {
+    const results = [];
+    for (const stmt of statements) {
+      const result = await this.execute(stmt.sql, stmt.params);
+      results.push(result);
+    }
+    return results;
+  }
+  /**
+   * Execute operations within a transaction
+   *
+   * Note: Supabase doesn't support true multi-statement transactions via RPC.
+   * This implementation uses a savepoint pattern for basic rollback support.
+   */
+  async transaction(fn) {
+    if (this.closed) {
+      throw new Error("Connection closed");
+    }
+    const savepointName = `sp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    await this.executeRaw("SAVEPOINT " + savepointName, []);
+    const scope = {
+      execute: async (sql, params) => {
+        const converted = convertSql(sql, params ?? []);
+        return this.executeRaw(converted.sql, converted.params);
+      },
+      commit: async () => {
+        await this.executeRaw("RELEASE SAVEPOINT " + savepointName, []);
+      },
+      rollback: async () => {
+        await this.executeRaw("ROLLBACK TO SAVEPOINT " + savepointName, []);
+      }
+    };
+    try {
+      const result = await fn(scope);
+      await scope.commit();
+      return result;
+    } catch (error) {
+      await scope.rollback();
+      throw error;
+    }
+  }
+  /**
+   * Check if the database is available
+   */
+  async isHealthy() {
+    if (this.closed) {
+      return false;
+    }
+    try {
+      const { error } = await this.client.from("vestige_metadata").select("key").limit(1);
+      return !error;
+    } catch {
+      return false;
+    }
+  }
+  /**
+   * Initialize the database schema
+   */
+  async initialize() {
+    if (this.config.debug) {
+      console.log("[SupabaseAdapter] Initializing schema...");
+    }
+    const statements = getSchemaStatements();
+    for (const statement of statements) {
+      try {
+        await this.executeRaw(statement, []);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.includes("already exists")) {
+          throw error;
+        }
+      }
+    }
+    if (this.config.debug) {
+      console.log("[SupabaseAdapter] Schema initialized");
+    }
+  }
+  /**
+   * Close the database connection
+   */
+  async close() {
+    this.closed = true;
+  }
+  /**
+   * Get the underlying Supabase client for direct access
+   * Use with caution - bypasses SQL conversion
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getClient() {
+    return this.client;
+  }
+};
+function createSupabaseAdapter(config) {
+  const url = config?.url ?? process.env["SUPABASE_URL"];
+  const serviceKey = config?.serviceKey ?? process.env["SUPABASE_SERVICE_KEY"] ?? process.env["SUPABASE_ANON_KEY"];
+  if (!url) {
+    throw new Error(
+      "Supabase URL not provided. Set SUPABASE_URL environment variable or pass url in config."
+    );
+  }
+  if (!serviceKey) {
+    throw new Error(
+      "Supabase key not provided. Set SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY environment variable or pass serviceKey in config."
+    );
+  }
+  return new SupabaseAdapter({
+    url,
+    serviceKey,
+    debug: config?.debug ?? process.env["DEBUG"] === "true",
+    schema: config?.schema,
+    bypassRLS: config?.bypassRLS
+  });
+}
+
+export {
+  convertSql,
+  isReadOnlyQuery,
+  extractTableName,
+  POSTGRES_SCHEMA,
+  getSchemaStatements,
+  getSchema,
+  SupabaseAdapter,
+  createSupabaseAdapter
+};
+//# sourceMappingURL=chunk-5MDAIEL4.js.map

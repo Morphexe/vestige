@@ -6,8 +6,11 @@ export default defineConfig([
     entry: [
       'src/index.ts',
       'src/cli.ts',
+      'src/lib.ts',
+      'src/vestige.ts',
       'src/core/fsrs.ts',
       'src/core/database.ts',
+      'src/codebase/detection.ts',
     ],
     format: ['esm'],
     dts: false, // TODO: Re-enable when MCP SDK type compatibility with Zod 4 is resolved
@@ -28,6 +31,7 @@ export default defineConfig([
       'src/adapters/turso-adapter.ts',
       'src/adapters/http-server.ts',
       'src/adapters/database-adapter.ts',
+      'src/adapters/openai-embeddings.ts',
     ],
     format: ['esm'],
     dts: false,

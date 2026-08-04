@@ -41,6 +41,7 @@ export {
   type DatabaseAdapter,
   type QueryResult,
   type TransactionScope,
+  type VectorSearchResult,
 } from './supabase-adapter.ts';
 
 // SQL converter utilities

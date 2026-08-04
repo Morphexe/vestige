@@ -46,3 +46,10 @@ export {
   type VestigeHttpServer,
   type VestigeHttpServerConfig,
 } from './http-server.ts';
+
+// OpenAI embedding service
+export {
+  OpenAIEmbeddingService,
+  createOpenAIEmbeddingService,
+  type OpenAIEmbeddingConfig,
+} from './openai-embeddings.ts';

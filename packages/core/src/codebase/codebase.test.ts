@@ -30,6 +30,7 @@ import {
 } from './types.js';
 
 import { ContextCapture, ProjectType, Framework, getFrameworkName } from './context.js';
+import { createDetector, nullDetectionStrategy, type DetectionStrategy } from './detection/index.js';
 
 import { PatternDetector, createBuiltinPatterns, type PatternMatch } from './patterns.js';
 
@@ -320,6 +321,82 @@ describe('Context Capture', () => {
     const context = capture.capture();
     expect(context.recentFiles).not.toContain('src/main.ts');
     expect(context.recentFiles).toContain('src/utils.ts');
+  });
+
+  describe('Detection Strategy', () => {
+    test('without detector returns Unknown and empty results', () => {
+      const capture = new ContextCapture('/tmp/test-project');
+      const context = capture.capture();
+
+      expect(context.projectType).toBe(ProjectType.Unknown);
+      expect(context.projectTypes).toEqual([ProjectType.Unknown]);
+      expect(context.frameworks).toEqual([]);
+      expect(context.projectName).toBeNull();
+      expect(context.configFiles).toEqual([]);
+    });
+
+    test('with detector via constructor', () => {
+      // Use the real detector on this TypeScript project
+      const projectRoot = process.cwd();
+      const capture = new ContextCapture(projectRoot, {
+        detector: createDetector(),
+      });
+      const context = capture.capture();
+
+      // Should detect TypeScript project with frameworks
+      expect(context.projectType).toBe(ProjectType.TypeScript);
+      expect(context.projectTypes).toContain(ProjectType.TypeScript);
+      expect(context.projectName).toBeDefined();
+      expect(context.configFiles.length).toBeGreaterThan(0);
+    });
+
+    test('with detector via setDetector() late injection', () => {
+      const projectRoot = process.cwd();
+      const capture = new ContextCapture(projectRoot);
+
+      // Initially without detector
+      const beforeContext = capture.capture();
+      expect(beforeContext.projectType).toBe(ProjectType.Unknown);
+
+      // Inject detector later
+      capture.setDetector(createDetector());
+
+      // Now should detect properly
+      const afterContext = capture.capture();
+      expect(afterContext.projectType).toBe(ProjectType.TypeScript);
+    });
+
+    test('custom detection strategy', () => {
+      // Create a custom detection strategy
+      const customDetector: DetectionStrategy = {
+        detect: () => ({
+          projectTypes: [ProjectType.Rust],
+          frameworks: [Framework.Axum, Framework.Tokio],
+          projectName: 'custom-project',
+          configFiles: ['/custom/Cargo.toml'],
+        }),
+      };
+
+      const capture = new ContextCapture('/custom/path', {
+        detector: customDetector,
+      });
+      const context = capture.capture();
+
+      expect(context.projectType).toBe(ProjectType.Rust);
+      expect(context.frameworks).toContain(Framework.Axum);
+      expect(context.frameworks).toContain(Framework.Tokio);
+      expect(context.projectName).toBe('custom-project');
+      expect(context.configFiles).toContain('/custom/Cargo.toml');
+    });
+
+    test('nullDetectionStrategy returns empty results', () => {
+      const result = nullDetectionStrategy.detect('/any/path');
+
+      expect(result.projectTypes).toEqual([ProjectType.Unknown]);
+      expect(result.frameworks).toEqual([]);
+      expect(result.projectName).toBeNull();
+      expect(result.configFiles).toEqual([]);
+    });
   });
 });
 

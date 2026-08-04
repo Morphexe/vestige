@@ -10,6 +10,14 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./lib": {
+      "types": "./dist/lib.d.ts",
+      "import": "./dist/lib.js"
+    },
+    "./vestige": {
+      "types": "./dist/vestige.d.ts",
+      "import": "./dist/vestige.js"
+    },
     "./fsrs": {
       "types": "./dist/core/fsrs.d.ts",
       "import": "./dist/core/fsrs.js"
@@ -19,13 +27,24 @@
       "import": "./dist/core/database.js"
     },
     "./adapters": {
+      "types": "./dist/adapters/index.d.ts",
       "import": "./dist/adapters/index.js"
     },
     "./adapters/turso": {
+      "types": "./dist/adapters/turso-adapter.d.ts",
       "import": "./dist/adapters/turso-adapter.js"
     },
     "./adapters/http": {
+      "types": "./dist/adapters/http-server.d.ts",
       "import": "./dist/adapters/http-server.js"
+    },
+    "./adapters/openai": {
+      "types": "./dist/adapters/openai-embeddings.d.ts",
+      "import": "./dist/adapters/openai-embeddings.js"
+    },
+    "./codebase/detection": {
+      "types": "./dist/codebase/detection.d.ts",
+      "import": "./dist/codebase/detection.js"
     }
   },
   "files": [
@@ -59,6 +78,7 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.0",
+    "@supabase/supabase-js": "^2.49.0",
     "chokidar": "^3.6.0",
     "chromadb": "^1.9.0",
     "date-fns": "^4.0.0",
@@ -69,6 +89,7 @@
     "natural": "^6.12.0",
     "node-cron": "^3.0.3",
     "ollama": "^0.5.0",
+    "openai": "^4.0.0",
     "p-limit": "^6.0.0",
     "zod": "^4.0.0"
   },

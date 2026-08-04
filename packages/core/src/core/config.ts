@@ -115,9 +115,13 @@ const ConsolidationConfigSchema = z.object({
  */
 const EmbeddingsConfigSchema = z.object({
   /** Embedding provider to use */
-  provider: z.enum(['ollama', 'fallback']).default('ollama'),
+  provider: z.enum(['ollama', 'openai', 'fallback']).default('ollama'),
   /** Ollama API host URL */
   ollamaHost: z.string().default('http://localhost:11434'),
+  /** OpenAI API key (required when provider is 'openai') */
+  openaiApiKey: z.string().optional(),
+  /** OpenAI base URL (optional, for proxies/custom endpoints) */
+  openaiBaseUrl: z.string().optional(),
   /** Embedding model name */
   model: z.string().default('nomic-embed-text'),
   /** Maximum text length to embed (characters) */
@@ -383,6 +387,39 @@ export function getConfig(): VestigeConfig {
  */
 export function resetConfig(): void {
   config = null;
+}
+
+/**
+ * Create a configuration object programmatically without filesystem access.
+ * Use this for library mode where you want to pass config directly.
+ *
+ * @param options - Partial configuration options
+ * @returns Validated configuration object with defaults applied
+ *
+ * @example
+ * ```typescript
+ * const config = createConfig({
+ *   fsrs: { desiredRetention: 0.95 },
+ *   memory: { retrievalDecayHalfLife: 30 },
+ *   embeddings: { provider: 'openai' },
+ * });
+ * ```
+ */
+export function createConfig(options: Partial<VestigeConfig> = {}): VestigeConfig {
+  // Validate and parse with Zod (applies defaults for missing fields)
+  return ConfigSchema.parse(options);
+}
+
+/**
+ * Set the global configuration singleton programmatically.
+ * Use this when initializing Vestige as a library.
+ *
+ * @param options - Partial configuration options
+ * @returns The validated configuration
+ */
+export function setConfig(options: Partial<VestigeConfig>): VestigeConfig {
+  config = createConfig(options);
+  return config;
 }
 
 // ============================================================================

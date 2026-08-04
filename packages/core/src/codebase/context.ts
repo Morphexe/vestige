@@ -8,10 +8,22 @@
  * - Storing memories with full context for later retrieval
  * - Providing relevant suggestions based on current work
  * - Maintaining continuity across sessions
+ *
+ * Detection is now optional - import the detection module to enable it:
+ * ```typescript
+ * import { ContextCapture } from '@vestige/core';
+ * import { createDetector } from '@vestige/core/codebase/detection';
+ *
+ * const capture = new ContextCapture('/path/to/project', {
+ *   detector: createDetector()
+ * });
+ * ```
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+
+import { nullDetectionStrategy, type DetectionStrategy } from './detection/types.js';
 
 // ============================================================================
 // PROJECT TYPE DETECTION
@@ -262,16 +274,57 @@ export interface FileContext {
 // ============================================================================
 
 /**
+ * Options for ContextCapture
+ */
+export interface ContextCaptureOptions {
+  /**
+   * Detection strategy for project type and framework detection.
+   * If not provided, detection returns Unknown/empty results.
+   *
+   * To enable detection, import and pass a detector:
+   * ```typescript
+   * import { createDetector } from '@vestige/core/codebase/detection';
+   * const capture = new ContextCapture(root, { detector: createDetector() });
+   * ```
+   */
+  detector?: DetectionStrategy;
+}
+
+/**
  * Context Capture
  *
  * Captures and manages working context for a project.
+ *
+ * By default, project type and framework detection is disabled.
+ * To enable detection, provide a detector via options or setDetector():
+ *
+ * ```typescript
+ * import { createDetector } from '@vestige/core/codebase/detection';
+ *
+ * // Via constructor
+ * const capture = new ContextCapture(root, { detector: createDetector() });
+ *
+ * // Via late injection
+ * const capture = new ContextCapture(root);
+ * capture.setDetector(createDetector());
+ * ```
  */
 export class ContextCapture {
   private projectRoot: string;
   private activeFiles: string[] = [];
+  private detector: DetectionStrategy;
 
-  constructor(projectRoot: string) {
+  constructor(projectRoot: string, options?: ContextCaptureOptions) {
     this.projectRoot = projectRoot;
+    this.detector = options?.detector ?? nullDetectionStrategy;
+  }
+
+  /**
+   * Set or replace the detection strategy.
+   * Useful for late injection when the detector is loaded asynchronously.
+   */
+  setDetector(detector: DetectionStrategy): void {
+    this.detector = detector;
   }
 
   /** Set the currently active files */
@@ -293,23 +346,21 @@ export class ContextCapture {
 
   /** Capture the full working context */
   capture(): WorkingContext {
-    const projectTypes = this.detectProjectTypes();
+    const detection = this.detector.detect(this.projectRoot);
+    const projectTypes = detection.projectTypes;
     const projectType = projectTypes.length === 1 ? projectTypes[0]! : ProjectType.Unknown;
-    const frameworks = this.detectFrameworks();
-    const projectName = this.detectProjectName();
-    const configFiles = this.findConfigFiles();
 
     return {
       git: null, // Git context requires async operations or external library
       activeFile: this.activeFiles[0] ?? null,
       projectType,
       projectTypes,
-      frameworks,
-      projectName,
+      frameworks: detection.frameworks,
+      projectName: detection.projectName,
       projectRoot: this.projectRoot,
       capturedAt: new Date(),
       recentFiles: [...this.activeFiles],
-      configFiles,
+      configFiles: detection.configFiles,
     };
   }
 
@@ -341,234 +392,6 @@ export class ContextCapture {
       isTestFile,
       module,
     };
-  }
-
-  /** Detect project types based on files present */
-  private detectProjectTypes(): ProjectType[] {
-    const detected: ProjectType[] = [];
-
-    // Check for Rust
-    if (this.fileExists('Cargo.toml')) {
-      detected.push(ProjectType.Rust);
-    }
-
-    // Check for JavaScript/TypeScript
-    if (this.fileExists('package.json')) {
-      if (this.fileExists('tsconfig.json') || this.fileExists('tsconfig.base.json')) {
-        detected.push(ProjectType.TypeScript);
-      } else {
-        detected.push(ProjectType.JavaScript);
-      }
-    }
-
-    // Check for Python
-    if (
-      this.fileExists('pyproject.toml') ||
-      this.fileExists('setup.py') ||
-      this.fileExists('requirements.txt')
-    ) {
-      detected.push(ProjectType.Python);
-    }
-
-    // Check for Go
-    if (this.fileExists('go.mod')) {
-      detected.push(ProjectType.Go);
-    }
-
-    // Check for Java/Kotlin
-    if (this.fileExists('pom.xml') || this.fileExists('build.gradle')) {
-      if (this.dirExists('src/main/kotlin') || this.fileExists('build.gradle.kts')) {
-        detected.push(ProjectType.Kotlin);
-      } else {
-        detected.push(ProjectType.Java);
-      }
-    }
-
-    // Check for Swift
-    if (this.fileExists('Package.swift')) {
-      detected.push(ProjectType.Swift);
-    }
-
-    // Check for C#
-    if (this.globExists('*.csproj') || this.globExists('*.sln')) {
-      detected.push(ProjectType.CSharp);
-    }
-
-    // Check for Ruby
-    if (this.fileExists('Gemfile')) {
-      detected.push(ProjectType.Ruby);
-    }
-
-    // Check for PHP
-    if (this.fileExists('composer.json')) {
-      detected.push(ProjectType.Php);
-    }
-
-    return detected.length > 0 ? detected : [ProjectType.Unknown];
-  }
-
-  /** Detect frameworks used in the project */
-  private detectFrameworks(): Framework[] {
-    const frameworks: Framework[] = [];
-
-    // Rust frameworks
-    const cargoContent = this.readFile('Cargo.toml');
-    if (cargoContent) {
-      if (cargoContent.includes('tauri')) frameworks.push(Framework.Tauri);
-      if (cargoContent.includes('actix-web')) frameworks.push(Framework.Actix);
-      if (cargoContent.includes('axum')) frameworks.push(Framework.Axum);
-      if (cargoContent.includes('rocket')) frameworks.push(Framework.Rocket);
-      if (cargoContent.includes('tokio')) frameworks.push(Framework.Tokio);
-      if (cargoContent.includes('diesel')) frameworks.push(Framework.Diesel);
-      if (cargoContent.includes('sea-orm')) frameworks.push(Framework.SeaOrm);
-    }
-
-    // JavaScript/TypeScript frameworks
-    const packageContent = this.readFile('package.json');
-    if (packageContent) {
-      if (packageContent.includes('"react"') || packageContent.includes('"react":'))
-        frameworks.push(Framework.React);
-      if (packageContent.includes('"vue"') || packageContent.includes('"vue":'))
-        frameworks.push(Framework.Vue);
-      if (packageContent.includes('"@angular/')) frameworks.push(Framework.Angular);
-      if (packageContent.includes('"svelte"')) frameworks.push(Framework.Svelte);
-      if (packageContent.includes('"next"') || packageContent.includes('"next":'))
-        frameworks.push(Framework.NextJs);
-      if (packageContent.includes('"nuxt"') || packageContent.includes('"nuxt":'))
-        frameworks.push(Framework.NuxtJs);
-      if (packageContent.includes('"express"')) frameworks.push(Framework.Express);
-      if (packageContent.includes('"@nestjs/')) frameworks.push(Framework.NestJs);
-    }
-
-    // Deno
-    if (this.fileExists('deno.json') || this.fileExists('deno.jsonc')) {
-      frameworks.push(Framework.Deno);
-    }
-
-    // Bun
-    if (this.fileExists('bun.lockb') || this.fileExists('bunfig.toml')) {
-      frameworks.push(Framework.Bun);
-    }
-
-    // Python frameworks
-    const pyprojectContent = this.readFile('pyproject.toml');
-    if (pyprojectContent) {
-      if (pyprojectContent.includes('django')) frameworks.push(Framework.Django);
-      if (pyprojectContent.includes('flask')) frameworks.push(Framework.Flask);
-      if (pyprojectContent.includes('fastapi')) frameworks.push(Framework.FastApi);
-      if (pyprojectContent.includes('pytest')) frameworks.push(Framework.Pytest);
-      if (pyprojectContent.includes('[tool.poetry]')) frameworks.push(Framework.Poetry);
-    }
-
-    // Check requirements.txt too
-    const requirementsContent = this.readFile('requirements.txt');
-    if (requirementsContent) {
-      if (requirementsContent.includes('django') && !frameworks.includes(Framework.Django))
-        frameworks.push(Framework.Django);
-      if (requirementsContent.includes('flask') && !frameworks.includes(Framework.Flask))
-        frameworks.push(Framework.Flask);
-      if (requirementsContent.includes('fastapi') && !frameworks.includes(Framework.FastApi))
-        frameworks.push(Framework.FastApi);
-    }
-
-    // Java Spring
-    const pomContent = this.readFile('pom.xml');
-    if (pomContent && pomContent.includes('spring')) {
-      frameworks.push(Framework.Spring);
-    }
-
-    // Ruby Rails
-    if (this.fileExists('config/routes.rb')) {
-      frameworks.push(Framework.Rails);
-    }
-
-    // PHP Laravel
-    if (this.fileExists('artisan') && this.dirExists('app/Http')) {
-      frameworks.push(Framework.Laravel);
-    }
-
-    // .NET
-    if (this.globExists('*.csproj')) {
-      frameworks.push(Framework.DotNet);
-    }
-
-    return frameworks;
-  }
-
-  /** Detect the project name from config files */
-  private detectProjectName(): string | null {
-    // Try Cargo.toml
-    const cargoContent = this.readFile('Cargo.toml');
-    if (cargoContent) {
-      const name = this.extractTomlValue(cargoContent, 'name');
-      if (name) return name;
-    }
-
-    // Try package.json
-    const packageContent = this.readFile('package.json');
-    if (packageContent) {
-      const name = this.extractJsonValue(packageContent, 'name');
-      if (name) return name;
-    }
-
-    // Try pyproject.toml
-    const pyprojectContent = this.readFile('pyproject.toml');
-    if (pyprojectContent) {
-      const name = this.extractTomlValue(pyprojectContent, 'name');
-      if (name) return name;
-    }
-
-    // Try go.mod
-    const goModContent = this.readFile('go.mod');
-    if (goModContent) {
-      const firstLine = goModContent.split('\n')[0];
-      if (firstLine?.startsWith('module ')) {
-        const modulePath = firstLine.slice(7).trim();
-        const parts = modulePath.split('/');
-        return parts[parts.length - 1] ?? null;
-      }
-    }
-
-    // Fall back to directory name
-    return path.basename(this.projectRoot);
-  }
-
-  /** Find configuration files in the project */
-  private findConfigFiles(): string[] {
-    const configNames = [
-      'Cargo.toml',
-      'package.json',
-      'tsconfig.json',
-      'pyproject.toml',
-      'go.mod',
-      '.gitignore',
-      '.env',
-      '.env.local',
-      'docker-compose.yml',
-      'docker-compose.yaml',
-      'Dockerfile',
-      'Makefile',
-      'justfile',
-      '.editorconfig',
-      '.prettierrc',
-      '.eslintrc.json',
-      'rustfmt.toml',
-      '.rustfmt.toml',
-      'clippy.toml',
-      '.clippy.toml',
-      'tauri.conf.json',
-    ];
-
-    const found: string[] = [];
-
-    for (const name of configNames) {
-      const fullPath = path.join(this.projectRoot, name);
-      if (fs.existsSync(fullPath)) {
-        found.push(fullPath);
-      }
-    }
-
-    return found;
   }
 
   /** Find files related to a given file */
@@ -731,72 +554,5 @@ export class ContextCapture {
     };
 
     return mapping[ext.toLowerCase()] ?? null;
-  }
-
-  // Helper methods
-
-  private fileExists(name: string): boolean {
-    return fs.existsSync(path.join(this.projectRoot, name));
-  }
-
-  private dirExists(name: string): boolean {
-    const fullPath = path.join(this.projectRoot, name);
-    return fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory();
-  }
-
-  private globExists(pattern: string): boolean {
-    try {
-      const entries = fs.readdirSync(this.projectRoot);
-      for (const entry of entries) {
-        // Simple glob matching for patterns like "*.ext"
-        if (pattern.startsWith('*.')) {
-          const ext = pattern.slice(1);
-          if (entry.endsWith(ext)) {
-            return true;
-          }
-        }
-      }
-    } catch {
-      // Directory might not be readable
-    }
-    return false;
-  }
-
-  private readFile(name: string): string | null {
-    try {
-      return fs.readFileSync(path.join(this.projectRoot, name), 'utf8');
-    } catch {
-      return null;
-    }
-  }
-
-  private extractTomlValue(content: string, key: string): string | null {
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith(`${key} `) || trimmed.startsWith(`${key}=`)) {
-        const value = trimmed.split('=')[1];
-        if (value) {
-          return value.trim().replace(/^["']|["']$/g, '');
-        }
-      }
-    }
-    return null;
-  }
-
-  private extractJsonValue(content: string, key: string): string | null {
-    const pattern = `"${key}"`;
-    for (const line of content.split('\n')) {
-      if (line.includes(pattern)) {
-        const colonPos = line.indexOf(':');
-        if (colonPos !== -1) {
-          const value = line.slice(colonPos + 1).trim();
-          const match = value.match(/^"([^"]+)"/);
-          if (match) {
-            return match[1] ?? null;
-          }
-        }
-      }
-    }
-    return null;
   }
 }
